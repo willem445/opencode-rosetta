@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "user-scope-remote": {
+      "type": "sse",
+      "url": "https://example.invalid/sse"
+    }
+  }
+}

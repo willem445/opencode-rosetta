@@ -2,3 +2,9 @@ node_modules/
 dist/
 *.log
 .DS_Store
+test/e2e/out/
+test/e2e/fixture/home/.local/
+test/e2e/fixture/home/.cache/
+test/e2e/fixture/home/.config/
+test/e2e/fixture/home/.bun/
+.scratch/

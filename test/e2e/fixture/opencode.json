@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [["../../../dist/index.js", { "log": "info" }]],
+  "agent": {
+    "keep-me": {
+      "description": "Proves rosetta never overwrites a key that already exists in cfg (precedence rule 1).",
+      "prompt": "Defined directly in opencode.json; must survive plugin injection untouched."
+    }
+  }
+}
