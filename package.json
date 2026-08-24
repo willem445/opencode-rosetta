@@ -1,0 +1,45 @@
+{
+  "name": "opencode-rosetta",
+  "version": "0.1.0",
+  "description": "opencode plugin that translates Claude Code and GitHub Copilot artifacts (agents, commands, MCP servers, instructions, skills) into opencode config in memory, via the plugin config hook.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "opencode": ">=1.18.0"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "claude-code",
+    "copilot",
+    "mcp"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/willem445/opencode-rosetta.git"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target node --format esm",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "e2e": "bun run test/e2e/run.ts",
+    "prepublishOnly": "bun run build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.18.21",
+    "@types/bun": "^1.4.0",
+    "@types/node": "^26.3.0",
+    "gray-matter": "^4.0.3",
+    "typescript": "^7.0.2"
+  }
+}

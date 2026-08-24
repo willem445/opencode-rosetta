@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly drift check against opencode-ai@latest -- catches the load-bearing
+    # facts (F1-F9 etc.) breaking before a real user hits them (plan risk G6).
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  test:
+    if: github.event_name != 'schedule'
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Unit tests
+        run: bun test
+
+      - name: Build
+        run: bun run build
+
+      - name: Install opencode 1.18.21
+        run: npm install -g opencode-ai@1.18.21
+
+      - name: opencode --version
+        run: opencode --version
+
+      - name: e2e
+        run: bun run e2e
+
+      - name: Upload e2e output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-output-${{ matrix.os }}
+          path: test/e2e/out
+          if-no-files-found: warn
+
+  drift:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: drift (opencode-ai@latest, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Unit tests
+        run: bun test
+
+      - name: Build
+        run: bun run build
+
+      - name: Install opencode-ai@latest
+        run: npm install -g opencode-ai@latest
+
+      - name: opencode --version
+        run: opencode --version
+
+      - name: e2e
+        run: bun run e2e
+
+      - name: Upload e2e output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-output-drift-${{ matrix.os }}
+          path: test/e2e/out
+          if-no-files-found: warn

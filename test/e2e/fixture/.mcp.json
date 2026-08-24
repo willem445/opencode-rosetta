@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "echo": {
+      "command": "node",
+      "args": ["./mcp-echo.mjs"]
+    },
+    "remote-example": {
+      "type": "http",
+      "url": "${REMOTE_MCP_URL:-https://example.invalid/mcp}",
+      "headers": { "Authorization": "Bearer ${REMOTE_MCP_TOKEN:-unset}" }
+    }
+  }
+}

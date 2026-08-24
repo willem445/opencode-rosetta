@@ -1,0 +1,11 @@
+{
+  "inputs": [{ "id": "github-token", "type": "promptString", "description": "GitHub token" }],
+  "servers": {
+    "vscode-echo": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["../mcp-echo.mjs"],
+      "env": { "TOKEN": "${input:github-token}" }
+    }
+  }
+}
