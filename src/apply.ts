@@ -40,7 +40,12 @@ function validateCommand(value: unknown): string | undefined {
 
 function validateMcp(value: unknown): string | undefined {
   if (!isPlainObject(value)) return "invalid-shape";
-  if (value.type !== "local" && value.type !== "remote") return "missing-type";
+  // Distinguish an ABSENT type from a PRESENT-but-unrecognized one (S1
+  // review finding, #8 finding 1): the translators only ever emit
+  // local/remote, so "invalid-type" here means a malformed fragment (a
+  // rosetta bug or a future source), not a user artifact we chose to skip.
+  if (!("type" in value) || value.type === undefined) return "missing-type";
+  if (value.type !== "local" && value.type !== "remote") return "invalid-type";
   return undefined;
 }
 

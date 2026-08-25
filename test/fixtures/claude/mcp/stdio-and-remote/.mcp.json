@@ -1,0 +1,35 @@
+{
+  "mcpServers": {
+    "echo": {
+      "command": "node",
+      "args": ["srv.js", "--verbose"],
+      "env": { "FOO": "bar" },
+      "cwd": ".",
+      "timeout": 5000
+    },
+    "remote-http": {
+      "type": "http",
+      "url": "https://example.invalid/mcp",
+      "headers": { "Authorization": "Bearer x" }
+    },
+    "legacy-sse": {
+      "type": "sse",
+      "url": "https://example.invalid/sse"
+    },
+    "streamable-alias": {
+      "type": "streamable-http",
+      "url": "https://example.invalid/streamable",
+      "timeout": 10000
+    },
+    "ws-server": {
+      "type": "ws",
+      "url": "wss://example.invalid/ws"
+    },
+    "no-type-url": {
+      "url": "https://example.invalid/no-type"
+    },
+    "no-command": {
+      "args": ["orphan.js"]
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "off-one": { "command": "node", "args": ["one.js"] },
+    "kept": { "command": "node", "args": ["kept.js"] }
+  }
+}

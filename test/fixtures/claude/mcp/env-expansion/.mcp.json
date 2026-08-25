@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "expand-local": {
+      "command": "${SET_VAR}",
+      "args": ["--root", "${workspaceFolder}", "--home", "${userHome}"],
+      "env": { "TOKEN": "${SECRET_VAR}" }
+    },
+    "expand-defaults": {
+      "command": "node",
+      "args": ["${UNSET_ONE:-fallback-one}"],
+      "env": { "EMPTY_DEFAULTED": "${EMPTY_VAR:-empty-fallback}" }
+    },
+    "expand-remote": {
+      "type": "http",
+      "url": "${REMOTE_URL:-https://default.example/mcp}",
+      "headers": { "Authorization": "Bearer ${env:GH_TOKEN}" }
+    }
+  }
+}

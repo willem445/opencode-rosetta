@@ -36,6 +36,7 @@
   },
   "dependencies": {},
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@opencode-ai/plugin": "1.18.21",
     "@types/bun": "^1.4.0",
     "@types/node": "^26.3.0",
