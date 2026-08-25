@@ -5,39 +5,112 @@ GitHub Copilot configuration — agents, commands/prompts, MCP servers, instruct
 skills — from opencode, translated in memory at startup. No files are generated or modified,
 on disk or anywhere else.
 
+## Why this exists
+
+Assistant config is not portable, and teams rarely standardise on one assistant.
+
+opencode reads some of what Claude Code and Copilot use — `.claude/skills/**`, `CLAUDE.md`
+and `AGENTS.md` are loaded natively. But agents, slash commands, MCP servers and scoped
+instructions all live in opencode's own configuration shape, and nothing reads
+`.claude/agents/`, `.claude/commands/`, `.mcp.json`, `.github/agents/`, `.github/prompts/`,
+`.github/instructions/` or `.vscode/mcp.json`.
+
+In a repository that already has those files, that leaves an opencode user with two bad
+options: hand-translate every agent, command and MCP server into opencode's format and keep
+two copies in sync forever, or go without the tooling everyone else on the team is using. The
+expensive part is not the first translation — it is the drift. A teammate edits a Claude
+subagent or adds an MCP server, and your parallel copy goes stale silently, which is worse
+than not having it.
+
+The pressure is sharper on a distributed team where people have genuinely different
+preferences, and sharper still inside an enterprise that has standardised on Copilot or Claude
+Code centrally. There, the shared config is not merely someone else's preference — it is the
+maintained, reviewed, sometimes mandated setup, and the person who wants a different harness is
+the one expected to absorb the cost of being different.
+
+This plugin removes the copy entirely. It reads those files where they already are, at startup,
+in memory, and hands opencode the translated result. Nothing is generated, nothing is committed,
+and there is nothing to re-sync when a teammate changes something — you pick up their next edit
+on your next start.
+
+Because it writes nothing to the repository, using it is a private decision. Your team does not
+have to adopt it, review it, or even know about it, and if you stop using it there is nothing to
+unwind.
+
 ## Install & enable
 
-Add the plugin to your `opencode.json`:
+**You do not need to run `npm install`.** Add one line to your opencode config and opencode
+fetches the plugin itself the next time it starts — into its own package cache, not your
+project's `node_modules`:
 
 ```jsonc
-// opencode.json
+// ~/.config/opencode/opencode.jsonc
 {
   "plugin": ["opencode-rosetta"]
 }
 ```
 
-Or pass options with the tuple form:
+Restart opencode, and that is the whole setup. There is nothing to install, run, sync or
+generate: your existing Claude Code and Copilot files are read at startup, as they are, and
+translated in memory.
+
+**Put it in your own config, not the project's.** Wanting to use Claude Code or Copilot
+artifacts from opencode is a personal preference, so it belongs in your user config at
+`~/.config/opencode/opencode.jsonc` (on Windows,
+`C:\Users\<you>\.config\opencode\opencode.jsonc`; `opencode.json` works too — use the `.jsonc`
+extension if you want comments in it).
+There it applies to every project you open, and your teammates never see it. A project-level
+`opencode.json` / `opencode.jsonc` works identically if you would rather enable it per
+repository, or commit it for a team that has agreed to it — see opencode's
+[configuration docs](https://opencode.ai/docs/config/) for how the two are merged.
+
+### Check it worked
+
+```
+opencode debug config
+```
+
+Your Claude Code and Copilot artifacts should now appear in the printed config. Depending on
+what you have, these show the individual pieces:
+
+```
+opencode debug agent <name>     # an agent from .claude/agents or .github/agents
+opencode debug skill            # skills discovered under .github/skills
+opencode mcp list               # MCP servers from .mcp.json or .vscode/mcp.json
+```
+
+If the plugin name appears in `opencode debug info` but nothing is translated, see
+[Limitations & troubleshooting](#limitations--troubleshooting) — a failed background install
+is silent.
+
+### Passing options
+
+Use the tuple form to pass options (all of them are listed under [Options](#options)):
 
 ```jsonc
-// opencode.json
+// ~/.config/opencode/opencode.jsonc
 {
   "plugin": [["opencode-rosetta", { "log": "info" }]]
 }
 ```
 
-Pin a version if you want upgrades to be explicit:
+### Pinning a version
+
+By default opencode tracks the latest release. Pin it if you want upgrades to be explicit:
 
 ```jsonc
-// opencode.json
+// ~/.config/opencode/opencode.jsonc
 {
   "plugin": ["opencode-rosetta@0.1.0"]
 }
 ```
 
-If you would rather load it from a checked-in file than reference the npm package in
-`plugin:` directly, install the package (`bun add opencode-rosetta`, or your package manager
-of choice) and re-export it — path plugins must export an `id`, which `dist/index.js`
-already does:
+### Loading it from a file instead
+
+This is the one case that *does* need a manual install — for example if you want the plugin
+checked in, or you are running an unpublished build. Install the package
+(`bun add opencode-rosetta`, or your package manager of choice) and re-export it. Path
+plugins must export an `id`, which `dist/index.js` already does:
 
 ```ts
 // .opencode/plugins/rosetta.ts
@@ -312,10 +385,11 @@ nearest-first; the loser is logged.
     config won't let opencode start at all.
 - The name shows in `opencode debug info` but nothing is translated: for a bare package name,
   opencode does not read your project's `node_modules` — it installs the package into its own
-  cache at `~/.cache/opencode/packages/<name>@latest`, and a failed install leaves that
-  directory empty and loads nothing, with no error anywhere. Delete the directory and restart
-  opencode to force a clean reinstall; for an unpublished copy, use the re-export form under
-  Install instead of the bare name.
+  cache under `~/.cache/opencode/` (the exact layout inside has differed between opencode
+  versions; `opencode debug paths` will tell you), and a failed install leaves nothing there
+  and loads nothing, with no error anywhere. Delete the cached copy and restart opencode to
+  force a clean reinstall; for an unpublished copy, use the re-export form under Install
+  instead of the bare name.
 - Releases and their changes are documented in
   [`CHANGELOG.md`](https://github.com/willem445/opencode-rosetta/blob/main/CHANGELOG.md).
 
