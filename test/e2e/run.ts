@@ -106,26 +106,89 @@ function main(): void {
     "cfg.instructions contains the absolute path of .github/copilot-instructions.md (S1 proof-of-life, B5)",
   );
 
-  const agents = (cfg.agent ?? {}) as Record<string, { description?: unknown }>;
+  const agents = (cfg.agent ?? {}) as Record<string, Record<string, unknown>>;
   check(
     typeof agents["keep-me"]?.description === "string" &&
       (agents["keep-me"].description as string).includes("never overwrites"),
     "agent.keep-me (defined directly in opencode.json) survives untouched -- precedence rule 1",
   );
 
-  // TODO(S2): agent.reviewer.mode === "subagent"; agent.reviewer.permission["*"] === "deny"; agent["user-agent"] present.
-  // TODO(S2): command.component.template contains "$1" (Claude $0 -> opencode $1, F12); command["user-cmd"] present.
+  // --- S2: B1 claude/agents ---
+  const reviewer = agents["reviewer"];
+  check(reviewer !== undefined, "agent.reviewer present (.claude/agents/reviewer.md -> B1)");
+  check(reviewer?.mode === "subagent", "agent.reviewer.mode === 'subagent' (B1: Claude subagents stay subagents)");
+  const reviewerPermission = reviewer?.permission as Record<string, unknown> | undefined;
+  check(
+    reviewerPermission?.["*"] === "deny",
+    "agent.reviewer.permission['*'] === 'deny' (tools allowlist -> deny-all + allows, F5)",
+  );
+  check(
+    reviewerPermission?.read === "allow" && reviewerPermission?.grep === "allow",
+    "agent.reviewer.permission allows read + grep",
+  );
+  check(
+    JSON.stringify(reviewerPermission?.bash) === JSON.stringify({ "git *": "allow" }),
+    "agent.reviewer.permission.bash === { 'git *': 'allow' } (Claude Bash(git *))",
+  );
+  check(
+    reviewerPermission?.edit === "deny",
+    "agent.reviewer.permission.edit === 'deny' (permissionMode: plan)",
+  );
+  check(
+    reviewer !== undefined && !("model" in reviewer),
+    "agent.reviewer has NO model key (model: sonnet unmapped by fixture options -> omitted, C2)",
+  );
+  check(agents["user-agent"] !== undefined, "agent['user-agent'] present (~/.claude/agents, B1 user scope)");
+
+  // --- S2: B2 claude/commands ---
+  const commands = (cfg.command ?? {}) as Record<string, Record<string, unknown>>;
+  check(
+    typeof commands["component"]?.template === "string" &&
+      (commands["component"].template as string).includes("$1"),
+    "command.component.template contains '$1' (Claude $0 -> opencode $1, F12 0-based -> 1-based shift)",
+  );
+  check(
+    commands["component"]?.subtask === true && commands["component"]?.agent === "explore",
+    "command.component.subtask === true with agent 'explore' (context: fork + agent: Explore)",
+  );
+  check(
+    typeof commands["component"]?.description === "string" &&
+      (commands["component"].description as string).includes("args: name"),
+    "command.component.description appends the argument-hint",
+  );
+  check(
+    commands["user-cmd"] !== undefined &&
+      (commands["user-cmd"].template as string | undefined)?.includes("$ARGUMENTS") === true,
+    "command['user-cmd'] present with $ARGUMENTS untouched (~/.claude/commands, B2 user scope)",
+  );
+
   // TODO(S3): mcp.echo.type === "local"; mcp["remote-example"].url has ${REMOTE_MCP_URL:-...} expanded; vscode-echo server has `environment`.
   // TODO(S4): command.plan present (Copilot prompt); cfg.skills.paths contains an absolute path ending .github/skills.
   // TODO(S5): agent.planner present, mode === "all".
 
   // --- step 2: opencode agent list ---
-  save("agent-list.txt", run("opencode", ["agent", "list"], { cwd: fixtureDir, env }));
-  // TODO(S2): assert "reviewer" listed as a subagent.
+  const agentList = run("opencode", ["agent", "list"], { cwd: fixtureDir, env });
+  save("agent-list.txt", agentList);
+  check(
+    /(^|\W)reviewer(\W|$)/.test(agentList.stdout) && /subagent/.test(agentList.stdout),
+    "agent list shows reviewer as a subagent (B1)",
+  );
   // TODO(S5): assert "planner" listed with mode "all".
 
   // --- step 3: opencode debug agent reviewer ---
-  // TODO(S2): assert tools.edit === false, tools.read === true (acceptance criterion for S1's own DoD, verified by S2).
+  const debugReviewer = run("opencode", ["debug", "agent", "reviewer"], { cwd: fixtureDir, env });
+  save("debug-agent-reviewer.txt", debugReviewer);
+  let reviewerTools: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(debugReviewer.stdout) as { tools?: Record<string, unknown> };
+    reviewerTools = parsed.tools ?? {};
+  } catch {
+    // captured in the saved output either way; the checks below fail loud
+  }
+  check(reviewerTools["edit"] === false, "debug agent reviewer -> tools.edit === false (edit denied)");
+  check(reviewerTools["read"] === true, "debug agent reviewer -> tools.read === true (read allowed)");
+  check(reviewerTools["bash"] === true, "debug agent reviewer -> tools.bash === true (available for 'git *' only)");
+  check(reviewerTools["write"] === false && reviewerTools["webfetch"] === false, "debug agent reviewer -> unlisted tools denied");
 
   // --- step 4: opencode debug skill ---
   const skillList = run("opencode", ["debug", "skill"], { cwd: fixtureDir, env });
@@ -154,6 +217,15 @@ function main(): void {
   );
   const negAgents = (negCfg.agent ?? {}) as Record<string, unknown>;
   check("keep-me" in negAgents, "negative control (--pure): agent.keep-me (native opencode.json config) still present");
+  check(
+    !("reviewer" in negAgents) && !("user-agent" in negAgents),
+    "negative control (--pure): rosetta-translated Claude agents absent",
+  );
+  const negCommands = (negCfg.command ?? {}) as Record<string, unknown>;
+  check(
+    !("component" in negCommands) && !("user-cmd" in negCommands),
+    "negative control (--pure): rosetta-translated Claude commands absent",
+  );
 
   log(`${failures === 0 ? "PASS" : "FAIL"} -- ${failures} failing check(s). Full output saved under test/e2e/out/.`);
   if (failures > 0) process.exit(1);
