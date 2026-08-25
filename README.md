@@ -34,8 +34,10 @@ Pin a version if you want upgrades to be explicit:
 }
 ```
 
-Without installing from npm, you can re-export the package locally (path plugins must export
-an `id`, which `dist/index.js` already does):
+If you would rather load it from a checked-in file than reference the npm package in
+`plugin:` directly, install the package (`bun add opencode-rosetta`, or your package manager
+of choice) and re-export it — path plugins must export an `id`, which `dist/index.js`
+already does:
 
 ```ts
 // .opencode/plugins/rosetta.ts
@@ -66,7 +68,7 @@ Everything below is discovered automatically at startup — there is nothing to 
 | `.github/copilot-instructions.md` | `instructions` entry | Always applied. |
 | `.github/instructions/**/*.instructions.md`, `~/.copilot/instructions/**` | `instructions` entry, or path-scoped injection when the file has an `applyTo` glob | See [`applyTo` instructions](#applyto-instructions-path-scoped). |
 | `.github/prompts/**/*.prompt.md` | slash commands | `${input:x}`, `${workspaceFolder}`, `#file:path` translated. See [Prompt files](#prompt-files-githubprompts). |
-| `.github/agents/**/*.agent.md`, `.github/chatmodes/*.chatmode.md`, `~/.copilot/agents/**` | agents (invocable by you *and* by the model, by default) | Tool families become permission rules. See [Copilot agents](#copilot-agents-githubagents). |
+| `.github/agents/**/*.agent.md`, `.github/chatmodes/*.chatmode.md`, `~/.copilot/agents/**` | agents (invocable by you *and* by the model, by default) | Tool families become permission rules. See [Copilot agents](#copilot-agents-githubagents-githubchatmodes-copilotagents). |
 | `.github/skills`, `~/.copilot/skills` | added to `skills.paths` | opencode's own skill scanner loads everything under them. Verify with `opencode debug skill`. |
 | `.vscode/mcp.json` | `mcp` server entries | Including `${input:id}` resolution. See [MCP servers](#mcp-servers). |
 
@@ -213,14 +215,14 @@ or home) are skipped.
 | Input field | opencode | Notes |
 |---|---|---|
 | `type: "stdio"` (or absent) + `command`, `args`, `env`, `cwd` | `{type:"local", command:[command,...args], environment, cwd}` | `command` occupies index 0 of opencode's array. |
-| `type: "http"` \| `"streamable-http"` \| `"sse"` + `url`, `headers` | `{type:"remote", url, headers}` | opencode tries StreamableHTTP then SSE itself. |
-| `timeout` | `timeout` | Passed through when present. |
+| `type: "http"` \| `"sse"` + `url`, `headers` | `{type:"remote", url, headers}` | opencode tries StreamableHTTP then SSE itself. `.mcp.json` / `~/.claude.json` additionally accept `type: "streamable-http"`; `.vscode/mcp.json` does not — a `streamable-http` server there is skipped with an unsupported-type warning. |
+| `timeout` | `timeout` | Passed through when present (`.mcp.json` / `~/.claude.json` only). A `timeout` in `.vscode/mcp.json` is currently ignored. |
 | `url` without `type` | skipped + warned | Claude rejects this too. |
 | any other `type` (e.g. `ws`) | skipped + warned | No opencode equivalent for WebSocket servers yet. |
-| `oauth` | dropped | Shapes differ from opencode's; leave opencode's own auto-detection on. |
+| `oauth` | dropped | Shapes differ from opencode's; leave opencode's own auto-detection on. Logged when dropped from `.vscode/mcp.json`. |
 | `${VAR}`, `${VAR:-default}`, `${env:VAR}` in `command`/`args`/`env`/`cwd`/`url`/`headers` | expanded from the process environment | A missing variable with no default is **left literal** + warned (naming only the variable NAME — values may be credentials). A variable that is **set but empty** behaves like an unset one: with a `:-default` the default is used (shell semantics), without one it is left literal + warned. Malformed references (unmatched `${`, bare `$VAR`, nested braces) pass through untouched — expansion never throws. |
-| `${workspaceFolder}` / `${userHome}` (`.vscode/mcp.json`) | your worktree root / home directory | |
-| `${input:id}` (`.vscode/mcp.json`) | resolved in order: (1) the `inputs` option — itself `{env:VAR}`-expandable; (2) env var `ROSETTA_INPUT_<ID>` (id upper-cased, non-alphanumeric → `_`); (3) the file's own `inputs[].default` | **Unresolved everywhere → the whole server is skipped with a warning.** VS Code would prompt interactively; a startup-time plugin cannot, so the server is dropped rather than injected broken. |
+| `${workspaceFolder}` / `${userHome}` | your worktree root / home directory | Expanded wherever they appear, in any source. |
+| `${input:id}` | resolved in order: (1) the `inputs` option — itself `{env:VAR}`-expandable; (2) env var `ROSETTA_INPUT_<ID>` (id upper-cased, non-alphanumeric → `_`); (3) the file's own `inputs[].default` (only `.vscode/mcp.json` declares an `inputs:` array) | **Unresolved everywhere → the whole server is skipped with a warning.** VS Code would prompt interactively; a startup-time plugin cannot, so the server is dropped rather than injected broken. |
 
 `${input:}` example — given this `.vscode/mcp.json`:
 
@@ -308,9 +310,11 @@ nearest-first; the loser is logged.
   - `OPENCODE_ROSETTA=off` — disable just this plugin.
   - `OPENCODE_DISABLE_PROJECT_CONFIG=1` — start from global config only, if a broken project
     config won't let opencode start at all.
-- Releases and their changes are documented in [`CHANGELOG.md`](CHANGELOG.md).
+- Releases and their changes are documented in
+  [`CHANGELOG.md`](https://github.com/willem445/opencode-rosetta/blob/main/CHANGELOG.md).
 
-Curious how it works? [`docs/design/0001-config-hook-translation.md`](docs/design/0001-config-hook-translation.md)
+Curious how it works?
+[The design note](https://github.com/willem445/opencode-rosetta/blob/main/docs/design/0001-config-hook-translation.md)
 has the mechanism and rationale (short version: a plugin `config` hook mutates the live
 config object in memory before anything consumes it — nothing is ever written to disk).
 
@@ -326,4 +330,4 @@ bun run e2e     # needs a real `opencode` binary on PATH (npm i -g opencode-ai)
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT — see [LICENSE](https://github.com/willem445/opencode-rosetta/blob/main/LICENSE).
