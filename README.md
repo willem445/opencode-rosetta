@@ -8,9 +8,9 @@ to your repo; nothing is written to disk at all. See
 for how and why.
 
 > **Status:** slices S1 (scaffold + CI; `.github/copilot-instructions.md`), S2 (Claude
-> subagents + commands, tables B1/B2) and S4 (Copilot instructions with `applyTo`, prompts,
-> skills) are shipped. Every other row below is a stub today and lands in S3/S5
-> (tracked on [#1](https://github.com/willem445/opencode-rosetta/issues/1)).
+> subagents + commands, tables B1/B2), S3 (MCP translators, tables B3/B9) and S4 (Copilot
+> instructions with `applyTo`, prompts, skills) are shipped. Every other row below is a stub
+> today and lands in S5 (tracked on [#1](https://github.com/willem445/opencode-rosetta/issues/1)).
 
 ## Install
 
@@ -142,7 +142,30 @@ opencode has no template escape of its own — its argument substitution runs ov
 template — so an escaped `$1` still reads as "argument 1" to opencode at invocation time.
 Avoid escaping positional-looking placeholders inside templates you want taken literally.
 
-### B3. Claude MCP (S3)
+### B3. Claude MCP (S3, shipped)
+
+`.mcp.json` + `~/.claude.json` → `cfg.mcp[name]`.
+
+Sources, in precedence order (first hit wins; a name seen again in a further scope is skipped
+with a `duplicate` warn):
+
+1. `<root>/.mcp.json` for every project root, nearest to where you ran opencode first.
+2. `~/.claude.json` → `projects[<worktree>].mcpServers` (Claude's "local" scope).
+3. `~/.claude.json` top-level `mcpServers` (user scope). Both home-file scopes are gated by
+   the `claude.user` option.
+
+Server names listed in `.claude/settings.json` / `.claude/settings.local.json`
+(`disabledMcpjsonServers`, project or home) are skipped with an info.
+
+| Claude | opencode | Notes |
+|---|---|---|
+| `type: stdio` or absent + `command`, `args`, `env` | `{type:"local", command:[command,...args], environment}` | `command` occupies index 0 of opencode's array. |
+| `type: http` \| `streamable-http` \| `sse` + `url`, `headers` | `{type:"remote", url, headers}` | opencode tries StreamableHTTP then SSE itself. |
+| `timeout`, `cwd` | same fields | Passed through when present. |
+| `url` without `type` | skipped + `warn` (`url-without-type`) | Claude rejects this too. |
+| any other `type` (e.g. `ws`) | skipped + `warn` (`unsupported-type`) | No opencode equivalent for WebSocket servers in v1. The translators therefore only ever emit `local`/`remote`; an unrecognized type reaching the applier is a rosetta bug and is reported as `invalid-type`. |
+| `oauth` | dropped | Shapes differ from opencode's `remote.oauth`; leave opencode's own auto-detection on. |
+| `${VAR}`, `${VAR:-default}` in `command`/`args`/`env`/`cwd`/`url`/`headers` | expanded from the process environment | A missing variable with no default is **left literal** + a `warn` naming only the variable NAME — env values may be credentials and are never logged. A variable that is **set but empty** behaves like an unset one: with a `:-default` the default is used (shell semantics), without one it is left literal + warned rather than expanding to an empty string. Malformed references (unmatched `${`, a bare `$VAR`, nested braces) are passed through untouched — expansion never throws. |
 
 ### B4. Claude skills / `CLAUDE.md` (native — verified by the e2e negative control, no translation)
 
@@ -201,7 +224,52 @@ involved; because the consumer dedupes by absolute path, a directory opencode
 someday scans natively simply stops being re-added. Verify with
 `opencode debug skill`.
 
-### B9. Copilot MCP / VS Code `mcp.json` (S3)
+### B9. Copilot MCP / VS Code `mcp.json` (S3, shipped)
+
+`.vscode/mcp.json` → `cfg.mcp[name]`.
+
+| VS Code | opencode | Notes |
+|---|---|---|
+| `type: stdio` + `command`, `args`, `env`, `cwd` | `{type:"local", command:[command,...args], environment, cwd}` | |
+| `type: http` \| `sse` + `url`, `headers` | `{type:"remote", url, headers}` | |
+| `envFile`, `dev`, `sandboxEnabled`, `oauth` | dropped + info (`unsupported-field-dropped`) | `envFile` (dotenv loading) is a planned follow-up; for `oauth` leave opencode's own auto-detection on. |
+| `${env:VAR}` | process environment | Missing variable → **left literal** + a `warn` naming only the variable NAME. |
+| `${workspaceFolder}` / `${userHome}` | the opencode worktree / your home directory | |
+| `${input:id}` | resolved in order: (1) this plugin's `inputs[id]` option — itself `{env:VAR}`-expandable; (2) env var `ROSETTA_INPUT_<ID>` (id upper-cased, non-alphanumeric → `_`); (3) the file's own `inputs[].default` | **Unresolved everywhere → the whole server is skipped with an `unresolved-input` warn.** VS Code would prompt interactively; a config hook cannot, so rosetta drops the server rather than injecting a broken one. |
+
+The VS Code user-profile `mcp.json` is out of scope for v1.
+
+### Example
+
+```jsonc
+// .vscode/mcp.json
+{
+  "inputs": [
+    { "id": "github-token", "type": "promptString" },              // no default
+    { "id": "region", "type": "promptString", "default": "eu" }    // fallback default
+  ],
+  "servers": {
+    "gh": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_TOKEN": "${input:github-token}", "REGION": "${input:region}" }
+    }
+  }
+}
+```
+
+```jsonc
+// opencode.json - resolve the input without VS Code's prompt box
+{
+  "plugin": [["opencode-rosetta", {
+    "inputs": { "github-token": "{env:GITHUB_TOKEN}" }   // layer 1: from your environment
+  }]]
+}
+```
+
+With neither an `inputs` option, nor `ROSETTA_INPUT_GITHUB_TOKEN` set, nor a default, the
+whole `gh` server stays out of your config and a warn names it.
 
 ## Limitations
 

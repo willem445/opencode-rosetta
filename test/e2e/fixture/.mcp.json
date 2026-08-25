@@ -8,6 +8,10 @@
       "type": "http",
       "url": "${REMOTE_MCP_URL:-https://example.invalid/mcp}",
       "headers": { "Authorization": "Bearer ${REMOTE_MCP_TOKEN:-unset}" }
+    },
+    "missing-var-example": {
+      "command": "node",
+      "args": ["./mcp-echo.mjs", "--token", "${ROSETTA_MISSING_VAR}"]
     }
   }
 }

@@ -1,0 +1,41 @@
+{
+  "inputs": [
+    { "id": "github-token", "type": "promptString", "description": "GitHub token" },
+    { "id": "token-with-default", "type": "promptString", "default": "fallback-default-value" }
+  ],
+  "servers": {
+    "stdio-server": {
+      "type": "stdio",
+      "command": "${env:SERVER_BIN}",
+      "args": ["--folder", "${workspaceFolder}", "--home", "${userHome}"],
+      "env": { "TOKEN": "${input:github-token}" },
+      "cwd": ".",
+      "envFile": "${workspaceFolder}/.env",
+      "dev": { "watch": true }
+    },
+    "defaulted-input": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["srv.js"],
+      "env": { "TOKEN": "${input:token-with-default}" }
+    },
+    "remote-http": {
+      "type": "http",
+      "url": "https://example.invalid/mcp",
+      "headers": { "Authorization": "Bearer ${input:github-token}" },
+      "sandboxEnabled": true
+    },
+    "legacy-sse": {
+      "type": "sse",
+      "url": "https://example.invalid/sse",
+      "oauth": { "clientId": "abc" }
+    },
+    "weird-type": {
+      "type": "docker",
+      "image": "something"
+    },
+    "no-command": {
+      "type": "stdio"
+    }
+  }
+}

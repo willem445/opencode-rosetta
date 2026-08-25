@@ -18,6 +18,8 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { stripAmbientOpencodeEnv } from "./env-filter.js";
+import { parseMcpList } from "./mcp-list.js";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const fixtureDir = join(repoRoot, "test", "e2e", "fixture");
@@ -61,22 +63,25 @@ function save(name: string, result: RunResult): void {
 /**
  * Global config isolated into fixture/home -- S1 confirmed this via `opencode debug paths`, pasted in the PR.
  *
- * Every `OPENCODE_*` variable from the surrounding shell is STRIPPED: running
- * `bun run e2e` from inside an opencode-managed session otherwise inherits
- * things like OPENCODE_DISABLE_PROJECT_CONFIG / OPENCODE_CONFIG_CONTENT and
- * every project-config assert fails against an invisible config override.
- * The harness must depend only on the repo, not on the developer's env.
+ * Every ambient `OPENCODE`-named variable (prefixed or the bare name) is
+ * STRIPPED from the child environment: running `bun run e2e` from inside an
+ * opencode-managed session otherwise inherits things like
+ * OPENCODE_DISABLE_PROJECT_CONFIG / OPENCODE_CONFIG_CONTENT and every
+ * project-config assert fails against an invisible config override. The
+ * harness must depend only on the repo, not on the developer's env.
  */
 function isolatedEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (key.startsWith("OPENCODE_")) continue;
-    env[key] = value;
-  }
-  env.HOME = homeDir;
-  env.USERPROFILE = homeDir;
-  env.XDG_CONFIG_HOME = join(homeDir, ".config");
-  return env;
+  // Exactly one strip implementation (reconciled between S2's and S3's N1
+  // fixes); the pattern itself is unit-tested in env-filter.test.ts so a
+  // future edit cannot silently narrow it back to the bare-OPENCODE leak.
+  return {
+    ...stripAmbientOpencodeEnv(process.env),
+    HOME: homeDir,
+    USERPROFILE: homeDir,
+    XDG_CONFIG_HOME: join(homeDir, ".config"),
+    // Resolves ${input:via-rosetta-input} in .vscode/mcp.json (B9 layer 2).
+    ROSETTA_INPUT_VIA_ROSETTA_INPUT: "from-rosetta-input-env",
+  };
 }
 
 function posix(p: string): string {
@@ -173,7 +178,39 @@ function main(): void {
     "command['user-cmd'] present with $ARGUMENTS untouched (~/.claude/commands, B2 user scope)",
   );
 
-  // TODO(S3): mcp.echo.type === "local"; mcp["remote-example"].url has ${REMOTE_MCP_URL:-...} expanded; vscode-echo server has `environment`.
+  // --- S3 (B3/B9): MCP fragments in the post-hook config ---
+  const mcpCfg = (cfg.mcp ?? {}) as Record<string, Record<string, unknown>>;
+  check(mcpCfg["echo"]?.type === "local", "mcp.echo.type === 'local' (Claude stdio, B3)");
+  check(
+    mcpCfg["remote-example"]?.url === "https://example.invalid/mcp",
+    `mcp['remote-example'].url has \${REMOTE_MCP_URL:-...} expanded (got: ${JSON.stringify(mcpCfg["remote-example"]?.url)})`,
+  );
+  check(
+    mcpCfg["remote-example"]?.headers !== undefined &&
+      (mcpCfg["remote-example"].headers as Record<string, string>).Authorization === "Bearer unset",
+    "mcp['remote-example'].headers.Authorization default-expanded (Bearer unset)",
+  );
+  check(
+    mcpCfg["user-scope-remote"]?.type === "remote",
+    "mcp['user-scope-remote'] present from ~/.claude.json top-level (user scope, B3)",
+  );
+  const missingVarCommand = mcpCfg["missing-var-example"]?.command as string[] | undefined;
+  check(
+    Array.isArray(missingVarCommand) && missingVarCommand.includes("${ROSETTA_MISSING_VAR}"),
+    `missing-var-example keeps \${ROSETTA_MISSING_VAR} LITERAL in cfg (B3: missing var, no default; got: ${JSON.stringify(missingVarCommand)})`,
+  );
+  check(
+    !("vscode-unresolved" in mcpCfg),
+    "vscode-unresolved (\${input:github-token}, unresolvable) is ABSENT from cfg.mcp (acceptance)",
+  );
+  check(
+    (mcpCfg["vscode-defaulted"]?.environment as Record<string, string> | undefined)?.TOKEN === "fallback-value",
+    "vscode-defaulted resolved via .vscode/mcp.json inputs[].default (B9 layer 3)",
+  );
+  check(
+    (mcpCfg["vscode-env-input"]?.environment as Record<string, string> | undefined)?.TOKEN === "from-rosetta-input-env",
+    "vscode-env-input resolved via ROSETTA_INPUT_VIA_ROSETTA_INPUT (B9 layer 2)",
+  );
   // TODO(S5): agent.planner present, mode === "all".
 
   // --- S4: B6 copilot prompt file -> command.plan ---
@@ -223,8 +260,24 @@ function main(): void {
   );
 
   // --- step 5: opencode mcp list ---
-  save("mcp-list.txt", run("opencode", ["mcp", "list"], { cwd: fixtureDir, env }));
-  // TODO(S3): assert "echo" connected (proves the command array); unresolved ${input:} server absent + warn logged.
+  const mcpList = run("opencode", ["mcp", "list"], { cwd: fixtureDir, env });
+  save("mcp-list.txt", mcpList);
+  check(mcpList.status === 0, "opencode mcp list exits 0");
+  // N2 (PR #11 review): pin *echo* specifically. The previous
+  // `/connected|✓|ok/i` check over the whole stdout passed whenever ANY
+  // server connected -- it could not distinguish success from failure.
+  const entries = parseMcpList(mcpList.stdout);
+  const echoEntry = entries.find((entry) => entry.name === "echo");
+  check(echoEntry !== undefined, "mcp list lists the echo server");
+  check(
+    echoEntry?.status === "connected",
+    `echo is connected (got: ${echoEntry?.status ?? "absent"}) -- proves the command array spawns`,
+  );
+  check(!entries.some((entry) => entry.name === "vscode-unresolved"), "vscode-unresolved absent from mcp list");
+  check(
+    entries.find((entry) => entry.name === "missing-var-example")?.status === "connected",
+    "missing-var-example listed (its unresolved ${ROSETTA_MISSING_VAR} stays literal; the echo script tolerates the extra arg)",
+  );
 
   // --- step 6: negative control -- --pure disables every external plugin (documented CLI flag, F14) ---
   const negative = run("opencode", ["debug", "config", "--pure"], { cwd: fixtureDir, env });
@@ -262,6 +315,8 @@ function main(): void {
       !negSkillPaths.some((p) => typeof p === "string" && posix(p).endsWith(".github/skills")),
     "negative control (--pure): .github/skills is NOT in cfg.skills.paths",
   );
+  const negMcp = (negCfg.mcp ?? {}) as Record<string, unknown>;
+  check(!("echo" in negMcp), "negative control (--pure): mcp.echo NOT injected");
 
   log(`${failures === 0 ? "PASS" : "FAIL"} -- ${failures} failing check(s). Full output saved under test/e2e/out/.`);
   if (failures > 0) process.exit(1);

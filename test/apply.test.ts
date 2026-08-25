@@ -104,6 +104,27 @@ describe("applyFragments", () => {
     expect(diag.all().some((d) => d.reason === "missing-type")).toBe(true);
   });
 
+  test("an mcp fragment with type present-but-unrecognized ('sse') is rejected as 'invalid-type', NOT 'missing-type'", () => {
+    const cfg: Record<string, unknown> = {};
+    const diag = new Diagnostics();
+    applyFragments(
+      cfg,
+      [result("claude.mcp", { mcp: { stale: { type: "sse", url: "https://example.invalid/sse" } } })],
+      diag,
+    );
+    expect(cfg.mcp).toEqual({});
+    expect(diag.all().some((d) => d.reason === "invalid-type" && d.field === "mcp.stale")).toBe(true);
+    expect(diag.all().some((d) => d.reason === "missing-type")).toBe(false);
+  });
+
+  test("an mcp entry with no 'type' key at all is still reported as 'missing-type'", () => {
+    const cfg: Record<string, unknown> = {};
+    const diag = new Diagnostics();
+    applyFragments(cfg, [result("copilot.mcp", { mcp: { bare: { url: "https://example.invalid/x" } } })], diag);
+    expect(cfg.mcp).toEqual({});
+    expect(diag.all().some((d) => d.reason === "missing-type" && d.field === "mcp.bare")).toBe(true);
+  });
+
   test("applying twice against the same cfg is idempotent (deep-equal, no new diagnostics on the second pass)", () => {
     const cfg: Record<string, unknown> = {};
     const diag = new Diagnostics();

@@ -1,11 +1,27 @@
 {
-  "inputs": [{ "id": "github-token", "type": "promptString", "description": "GitHub token" }],
+  "inputs": [
+    { "id": "github-token", "type": "promptString", "description": "GitHub token" },
+    { "id": "token-with-default", "type": "promptString", "default": "fallback-value" },
+    { "id": "via-rosetta-input", "type": "promptString", "description": "Resolved via ROSETTA_INPUT_VIA_ROSETTA_INPUT by the harness" }
+  ],
   "servers": {
-    "vscode-echo": {
+    "vscode-unresolved": {
       "type": "stdio",
       "command": "node",
-      "args": ["../mcp-echo.mjs"],
+      "args": ["./mcp-echo.mjs"],
       "env": { "TOKEN": "${input:github-token}" }
+    },
+    "vscode-defaulted": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["./mcp-echo.mjs"],
+      "env": { "TOKEN": "${input:token-with-default}" }
+    },
+    "vscode-env-input": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["./mcp-echo.mjs"],
+      "env": { "TOKEN": "${input:via-rosetta-input}" }
     }
   }
 }
