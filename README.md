@@ -44,7 +44,7 @@ fetches the plugin itself the next time it starts — into its own package cache
 project's `node_modules`:
 
 ```jsonc
-// ~/.config/opencode/opencode.json
+// ~/.config/opencode/opencode.jsonc
 {
   "plugin": ["opencode-rosetta"]
 }
@@ -56,10 +56,12 @@ translated in memory.
 
 **Put it in your own config, not the project's.** Wanting to use Claude Code or Copilot
 artifacts from opencode is a personal preference, so it belongs in your user config at
-`~/.config/opencode/opencode.json` (on Windows, `C:\Users\<you>\.config\opencode\opencode.json`).
+`~/.config/opencode/opencode.jsonc` (on Windows,
+`C:\Users\<you>\.config\opencode\opencode.jsonc`; `opencode.json` works too — use the `.jsonc`
+extension if you want comments in it).
 There it applies to every project you open, and your teammates never see it. A project-level
-`opencode.json` works identically if you would rather enable it per repository, or commit it
-for a team that has agreed to it — see opencode's
+`opencode.json` / `opencode.jsonc` works identically if you would rather enable it per
+repository, or commit it for a team that has agreed to it — see opencode's
 [configuration docs](https://opencode.ai/docs/config/) for how the two are merged.
 
 ### Check it worked
@@ -86,7 +88,7 @@ is silent.
 Use the tuple form to pass options (all of them are listed under [Options](#options)):
 
 ```jsonc
-// ~/.config/opencode/opencode.json
+// ~/.config/opencode/opencode.jsonc
 {
   "plugin": [["opencode-rosetta", { "log": "info" }]]
 }
@@ -97,7 +99,7 @@ Use the tuple form to pass options (all of them are listed under [Options](#opti
 By default opencode tracks the latest release. Pin it if you want upgrades to be explicit:
 
 ```jsonc
-// ~/.config/opencode/opencode.json
+// ~/.config/opencode/opencode.jsonc
 {
   "plugin": ["opencode-rosetta@0.1.0"]
 }
