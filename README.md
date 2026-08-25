@@ -7,9 +7,9 @@ to your repo; nothing is written to disk at all. See
 [`docs/design/0001-config-hook-translation.md`](docs/design/0001-config-hook-translation.md)
 for how and why.
 
-> **Status:** slice S1 (scaffold + CI + one proof-of-life row: `.github/copilot-instructions.md`).
-> Every other row below is a stub today and lands in S2-S5 (tracked on
-> [#1](https://github.com/willem445/opencode-rosetta/issues/1)).
+> **Status:** slices S1 (scaffold + CI + `.github/copilot-instructions.md`) and S2 (Claude
+> subagents + commands, tables B1/B2) are shipped. Every other row below is a stub today and
+> lands in S3-S5 (tracked on [#1](https://github.com/willem445/opencode-rosetta/issues/1)).
 
 ## Install
 
@@ -42,8 +42,8 @@ during their own `server()` — see "Ordering" under Limitations.
 
 | From | To | Slice |
 |---|---|---|
-| `.claude/agents/**/*.md`, `~/.claude/agents/**/*.md` | `cfg.agent[name]` | S2 |
-| `.claude/commands/**/*.md`, `~/.claude/commands/**/*.md` | `cfg.command[name]` | S2 |
+| `.claude/agents/**/*.md`, `~/.claude/agents/**/*.md` | `cfg.agent[name]` | **S2** |
+| `.claude/commands/**/*.md`, `~/.claude/commands/**/*.md` | `cfg.command[name]` | **S2** |
 | `.mcp.json`, `~/.claude.json` | `cfg.mcp[name]` | S3 |
 | `.claude/skills/**`, `CLAUDE.md`, `AGENTS.md` | **native to opencode already — untouched** | — |
 | `.github/copilot-instructions.md` | `cfg.instructions[]` | **S1** |
@@ -101,9 +101,45 @@ files, never `client.config.update`): [`docs/design/0001-config-hook-translation
 Each table below documents one row of "What gets translated" field-by-field: what's read,
 what it becomes, and what's dropped (with why). Filled in as each slice ships.
 
-### B1. Claude subagents (S2)
+### B1. Claude subagents (**S2, shipped**)
 
-### B2. Claude commands (S2)
+`.claude/agents/**/*.md` and `~/.claude/agents/**/*.md` → `cfg.agent[name]`, `mode: "subagent"`.
+Searched nearest-to-where-you-ran-opencode first, then your home directory (disable the latter
+with `"claude": { "user": false }`).
+
+| Claude | opencode | Notes |
+|---|---|---|
+| `name` | key | No `name` → skipped silently (Claude treats it as a docs file). `name` without `description` → skipped + logged (`info`). A `name` containing `:` or starting with `-` → skipped + logged (`warn`). Unparseable frontmatter → skipped + logged (`warn`, `unparseable`). |
+| `description` / body | `description` / `prompt` | |
+| — | `mode: "subagent"` | Claude subagents are subagents; keeps your primary picker clean. |
+| `tools` (comma list) | `permission = { "*": "deny", …allows }` | Allowlist semantics — the same shape as opencode's native `explore` agent. Emitted as **`permission`, never `tools`** (hook-injected agents bypass opencode's schema decoder, which is the only place that converts `tools`; see the design note, F5). `Read→read`, `Write/Edit/MultiEdit/NotebookEdit→edit`, `Bash→bash`, `Glob→glob`, `Grep→grep`, `LS→list`, `WebFetch→webfetch`, `WebSearch→websearch`, `Task/Agent→task`, `TodoWrite→todowrite`, `Skill→skill`, `AskUserQuestion→question`. `Bash(git *)` → `bash: {"git *": "allow"}`; `Agent(a, b)` → `task: {"*":"deny", a:"allow", b:"allow"}`; `mcp__srv` → `"srv_*": "allow"`, `mcp__srv__tool` → `"srv_tool": "allow"` (opencode MCP tool ids are `<server>_<tool>` — verified in `McpCatalog.toolName`, `mcp/catalog.ts` at v1.18.21). Unknown tool names are dropped + logged (`warn`). |
+| `disallowedTools` | same keys with `"deny"`, applied after allows | Specific denies translate exactly as allows do — including per-tool MCP denies (`mcp__db__query` → `"db_query": "deny"`), so "server X except tool Y" stays server-X-except-tool-Y. Only the blanket form `mcp__*` is inexpressible (opencode has no all-MCP key) → dropped + logged (`warn`). |
+| `model` | `model` | `inherit`/absent → omitted. `sonnet/opus/haiku/fable` → your `models` option mapping, else omitted + logged (`info`). A full `claude-*` id → `anthropic/<id>` (overridable via `models`). Anything else → omitted + logged (`info`) — an unresolvable `provider/model` fails at prompt time, so rosetta never guesses. |
+| `permissionMode` | merged into `permission` | `plan` → `edit: "deny"`; `acceptEdits` → `edit: "allow"`; `default/manual/auto/dontAsk/bypassPermissions` → no rule + logged (`info`) — in particular `bypassPermissions` is deliberately *not* mapped to `"*": "allow"`. |
+| `color` | `color` | `red→error`, `blue→primary`, `green→success`, `yellow→warning`, `purple→secondary`, `orange/pink→accent`, `cyan→info`; anything else dropped + logged (`info`). |
+| `maxTurns` | `steps` | Non-numeric values dropped + logged (`info`). |
+| `skills`, `mcpServers`, `hooks`, `memory`, `background`, `effort`, `isolation`, `initialPrompt` | dropped | Logged once per file (`info`, naming the fields). Inline per-agent `mcpServers` is a follow-up. |
+
+### B2. Claude commands (**S2, shipped**)
+
+`.claude/commands/**/*.md` and `~/.claude/commands/**/*.md` → `cfg.command[name]`. The command
+name is the file basename without extension — subdirectories are **not** part of the name
+(Claude's rule), so `.claude/commands/frontend/component.md` is `/component`. A name collision
+across scopes resolves nearest-first, and the loser is logged (`warn`, `duplicate`).
+
+| Claude | opencode | Notes |
+|---|---|---|
+| file basename | key | See above. |
+| body | `template` | `$ARGUMENTS` unchanged. `$ARGUMENTS[N]` and bare `$N` are shifted **+1**: Claude counts positions from 0 (`$0` is the first argument — verified against the current Claude Code skills doc, "Available string substitutions"), opencode from 1. Named `arguments:` entries map to their declared position (`$issue` with `arguments: [issue, branch]` → `$1`). `${CLAUDE_PROJECT_DIR}` → your worktree root. `` !`cmd` `` shell injection and `@file` references pass through unchanged (identical syntax in opencode). |
+| `description` (+ `argument-hint`) | `description` | Hint appended as `"<description> — args: <hint>"`. |
+| `model` | `model` | Exactly as B1. |
+| `context: fork` (+ `agent`) | `subtask: true` (+ `agent`) | The agent is kept when it maps to a built-in (`Explore→explore`, `Plan→plan`, `general-purpose→general`) or names an agent this plugin translated from `.claude/agents` in the same run; otherwise omitted + logged (`info`, `unknown-fork-agent`). |
+| `allowed-tools`, `disallowed-tools`, `disable-model-invocation`, `user-invocable`, `hooks`, `paths`, `effort`, `when_to_use`, `background` | dropped | Commands have no per-command tool scope in opencode. Logged once per file (`info`). |
+
+Known template limitation: Claude's `\$` escape becomes a literal `$` after the shift, but
+opencode has no template escape of its own — its argument substitution runs over the whole
+template — so an escaped `$1` still reads as "argument 1" to opencode at invocation time.
+Avoid escaping positional-looking placeholders inside templates you want taken literally.
 
 ### B3. Claude MCP (S3)
 
@@ -129,6 +165,8 @@ path is appended to `cfg.instructions`. Nothing else in this table exists yet �
 
 - Every "drop" in the tables above (once filled in) is intentional and documented there — not
   a bug. `models`/`inputs` unresolved references are omitted rather than guessed.
+- An artifact file that exists but cannot be read (permissions, locked by another process) is
+  skipped with a logged `could-not-read (<errno>)` warning — it never blocks startup.
 - **Ordering matters** if another plugin listed before `opencode-rosetta` in `plugin:` calls
   `client.*` inside its own `server()` in a way that materializes Agent/Command/Skill state
   early — list `opencode-rosetta` first.
