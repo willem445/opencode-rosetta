@@ -246,7 +246,7 @@ never appear in a diagnostic or log line — warnings carry variable *names*, ne
 |---|---|---|
 | `name` / `description` / body | agent key / `description` / `prompt` | No usable `name` → the file is treated as a plain doc and ignored. `name` without `description` → skipped + logged. A `name` containing `:` or starting with `-` → skipped + warned. |
 | `tools` (comma list) | `permission = { "*": "deny", …allows }` | Allowlist semantics — same shape as opencode's native `explore` agent. `Read→read`, `Write/Edit/MultiEdit/NotebookEdit→edit`, `Bash→bash`, `Glob→glob`, `Grep→grep`, `LS→list`, `WebFetch→webfetch`, `WebSearch→websearch`, `Task/Agent→task`, `TodoWrite→todowrite`, `Skill→skill`, `AskUserQuestion→question`. Narrow forms translate too: `Bash(git *)` → `bash: {"git *": "allow"}`; `Agent(a, b)` → `task: {"*":"deny", a:"allow", b:"allow"}`; `mcp__srv` → `"srv_*": "allow"`, `mcp__srv__tool` → `"srv_tool": "allow"`. Unknown tool names are dropped + warned. |
-| `disallowedTools` | same keys with `"deny"`, applied after allows | Per-server MCP denies translate exactly (`mcp__db__query` → `"db_query": "deny"`), so "server X except tool Y" survives. Only the blanket form `mcp__*` is inexpressible (opencode has no all-MCP rule) → dropped + warned. |
+| `disallowedTools` | same keys with `"deny"`, applied after allows | Per-server MCP denies translate exactly (`mcp__db__query` → `"db_query": "deny"`), so "server X except tool Y" survives. Only the blanket form `mcp__*` is inexpressible (opencode has no all-MCP permission key) → dropped + warned. On the allow side the warn states that MCP tools stay **denied despite the allow rule**; on the deny side it states that specific servers are **not** denied by the blanket entry. Either way it names the dropped rule (`"mcp__*"`) and says how to get the effect: list each server explicitly, e.g. `tools: mcp__myserver`. |
 | `model` | `model` | Absent/`inherit` → omitted. `sonnet`/`opus`/`haiku`/`fable` → your `models` mapping, else omitted + logged. A full `claude-*` id → `anthropic/<id>` (your `models` mapping overrides). Anything else → omitted + logged. |
 | `permissionMode` | folded into `permission` | `plan` → `edit: "deny"`; `acceptEdits` → `edit: "allow"`; `default`/`manual`/`auto`/`dontAsk`/`bypassPermissions` → no rule + logged — in particular `bypassPermissions` is deliberately *not* mapped to `"*": "allow"`. |
 | `color` | `color` | `red→error`, `blue→primary`, `green→success`, `yellow→warning`, `purple→secondary`, `orange/pink→accent`, `cyan→info`; anything else dropped + logged. |
@@ -397,6 +397,8 @@ Curious how it works?
 [The design note](https://github.com/willem445/opencode-rosetta/blob/main/docs/design/0001-config-hook-translation.md)
 has the mechanism and rationale (short version: a plugin `config` hook mutates the live
 config object in memory before anything consumes it — nothing is ever written to disk).
+[0002](https://github.com/willem445/opencode-rosetta/blob/main/docs/design/0002-blanket-mcp-allow-semantics.md)
+records why a blanket `mcp__*` allow translates to deny-all plus an explicit warn.
 
 ## Development
 
