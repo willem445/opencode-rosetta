@@ -81,17 +81,27 @@ Implementation notes (all verified against `opencode-ai@1.18.21`, not assumed):
   appends one block per matching file: `Instructions from: <abs path> (applyTo: <original
   glob>)` followed by the body (frontmatter stripped — it is config, not prose). Multiple
   matches join with a blank line, registry order kept.
-- **Once per `(sessionID, read-path)`.** A `Set` keyed by session + worktree-relative posix
-  path gates appends, so re-reading a file in one session never duplicates an injection
-  while two sessions stay independent. `Hooks.dispose` clears it — opencode calls
-  `dispose` when the plugin instance is torn down, so the memory cannot leak across
-  plugin lifecycles.
+- **Once per `(sessionID, read-path)`, with a hard bound.** A `Set` keyed by session +
+  worktree-relative posix path gates appends, so re-reading a file in one session never
+  duplicates an injection while two sessions stay independent. The Set is FIFO-bounded
+  (oldest key evicted at 4096 entries), so memory stays O(cap) for the plugin's lifetime
+  even if a long-lived process reads unbounded distinct matched files. `Hooks.dispose`
+  clears it entirely — opencode calls `dispose` when the plugin instance is torn down, so
+  the memory cannot leak across plugin lifecycles.
+- **Path handling mirrors `tool/read.ts` end to end.** An absolute `filePath` is used as-is;
+  a relative one is resolved against the instance *directory*
+  (`path.resolve(instance.directory, filepath)` in `tool/read.ts`), not the worktree — the
+  two differ when a session is launched from a subdirectory. The result is made
+  worktree-relative and posix-normalized before matching. Only file reads inject: the read
+  tool also lists directories, and Copilot `applyTo` targets files, so a matching directory
+  path is skipped.
 - **Windows paths.** `applyTo` globs are authored posix-style but `args.filePath` and
   `path.relative()` carry backslashes on win32. Matching normalizes both separators
   unconditionally (`glob.toPosixSlashes`) rather than going through `fs.toPosix`, which only
   converts the *native* separator and would leave a backslash path unmatched on POSIX CI
   runners. Pinned by a cross-platform unit test that feeds a literal-backslash path through
-  the matcher, plus a hook-level test using native `join` (real backslashes on Windows CI).
+  the matcher, plus a hook-level test using native `join` asserted on both platforms (real
+  backslashes on win32, the posix flow elsewhere).
 - **State flows through a holder, not a constructor argument.** opencode calls `server()`
   once and may fire either hook first; the config pass fills in the instruction list and
   worktree after translation, and the read hook reads through that indirection. When the

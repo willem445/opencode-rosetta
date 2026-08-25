@@ -176,7 +176,7 @@ function main(): void {
   // TODO(S3): mcp.echo.type === "local"; mcp["remote-example"].url has ${REMOTE_MCP_URL:-...} expanded; vscode-echo server has `environment`.
   // TODO(S5): agent.planner present, mode === "all".
 
-  const commands = (cfg.command ?? {}) as Record<string, { template?: unknown }>;
+  // --- S4: B6 copilot prompt file -> command.plan ---
   check(
     typeof commands["plan"]?.template === "string" && (commands["plan"].template as string).includes("$ARGUMENTS"),
     "command.plan present with $ARGUMENTS substituted for its single ${input:topic} (Copilot prompt file, B6)",

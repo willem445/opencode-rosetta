@@ -47,7 +47,9 @@ const server: Plugin = async (input: PluginInput, options?: PluginOptions): Prom
 
       if (opts.copilot.applyTo === "inject") {
         const pathScoped = results.flatMap(({ fragment }) => fragment.pathScoped ?? []);
-        if (pathScoped.length > 0) applyToState = { worktree: ctx.worktree, instructions: pathScoped };
+        if (pathScoped.length > 0) {
+          applyToState = { worktree: ctx.worktree, directory: ctx.directory, instructions: pathScoped };
+        }
       }
 
       await ctx.diag.flush(input.client, opts.log);
