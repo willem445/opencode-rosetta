@@ -7,9 +7,10 @@ to your repo; nothing is written to disk at all. See
 [`docs/design/0001-config-hook-translation.md`](docs/design/0001-config-hook-translation.md)
 for how and why.
 
-> **Status:** slices S1 (scaffold + CI + `.github/copilot-instructions.md`) and S2 (Claude
-> subagents + commands, tables B1/B2) are shipped. Every other row below is a stub today and
-> lands in S3-S5 (tracked on [#1](https://github.com/willem445/opencode-rosetta/issues/1)).
+> **Status:** slices S1 (scaffold + CI; `.github/copilot-instructions.md`), S2 (Claude
+> subagents + commands, tables B1/B2) and S4 (Copilot instructions with `applyTo`, prompts,
+> skills) are shipped. Every other row below is a stub today and lands in S3/S5
+> (tracked on [#1](https://github.com/willem445/opencode-rosetta/issues/1)).
 
 ## Install
 
@@ -47,10 +48,10 @@ during their own `server()` — see "Ordering" under Limitations.
 | `.mcp.json`, `~/.claude.json` | `cfg.mcp[name]` | S3 |
 | `.claude/skills/**`, `CLAUDE.md`, `AGENTS.md` | **native to opencode already — untouched** | — |
 | `.github/copilot-instructions.md` | `cfg.instructions[]` | **S1** |
-| `.github/instructions/**/*.instructions.md` (+ `applyTo`), `~/.copilot/instructions/**` | `cfg.instructions[]` or path-scoped injection | S4 |
-| `.github/prompts/**/*.prompt.md` | `cfg.command[name]` | S4 |
+| `.github/instructions/**/*.instructions.md` (+ `applyTo`), `~/.copilot/instructions/**` | `cfg.instructions[]` or path-scoped injection | **S4** |
+| `.github/prompts/**/*.prompt.md` | `cfg.command[name]` | **S4** |
 | `.github/agents/**/*.agent.md` (+ `*.chatmode.md`), `~/.copilot/agents` | `cfg.agent[name]` | S5 |
-| `.github/skills`, `~/.copilot/skills` | `cfg.skills.paths[]` | S4 |
+| `.github/skills`, `~/.copilot/skills` | `cfg.skills.paths[]` | **S4** |
 | `.vscode/mcp.json` | `cfg.mcp[name]` | S3 |
 
 **Out of scope for v1** (see the design note): Cursor/Windsurf/Gemini, Claude hooks/settings,
@@ -147,17 +148,58 @@ Avoid escaping positional-looking placeholders inside templates you want taken l
 
 ### B5. Copilot instructions
 
-`.github/copilot-instructions.md` → `cfg.instructions[]` (**S1, shipped**): if the file exists
-at your project root (or a root above where you ran opencode, nearest first), its absolute
-path is appended to `cfg.instructions`. Nothing else in this table exists yet — the rest
-(`.github/instructions/**/*.instructions.md`, `applyTo` path-scoping, the
-`~/.copilot/instructions/**` user tree) is S4.
+| Copilot | opencode | Notes |
+|---|---|---|
+| `.github/copilot-instructions.md` | `cfg.instructions[]` (absolute path) | Always-on; searched nearest-to-cwd first (**S1**, shipped). |
+| `.github/instructions/**/*.instructions.md` with `applyTo: "**"` / `*` / `**/*` | `cfg.instructions[]` | A glob that matches everything means "always apply" — same as the root file. |
+| … with any other `applyTo` glob (comma-separated lists supported) | **path-scoped injection**: a matching `read` tool call gets the instructions appended to its output, once per session per file | Default mode `inject`; see below. Matching normalizes Windows backslashes to posix before comparing, so `src/**/*.ts` matches on every platform. |
+| … with no `applyTo` at all | dropped + `info` diagnostic | Copilot only applies these when a user manually attaches them; there is no always-on equivalent. |
+| `~/.copilot/instructions/**` | same rules as above | Gated by `"copilot": { "user": false }`. |
+| `name`, `description`, `excludeAgent` frontmatter | dropped | No opencode equivalent for per-file metadata. |
 
-### B6. Copilot prompts (S4)
+The injected text mirrors what opencode itself does for nested `AGENTS.md`
+files: a `<system-reminder>` block appended to the read tool's output:
+
+```
+<system-reminder>
+Instructions from: /repo/.github/instructions/ts.instructions.md (applyTo: **/*.ts)
+Use `type` imports for type-only symbols.
+</system-reminder>
+```
+
+Each `(session, file)` pair is injected at most once per session, so
+re-reading a file never duplicates the reminder.
+
+**The `copilot.applyTo` option** chooses how non-universal `applyTo` files are
+treated: `"inject"` (default — the read hook above), `"always"` (treat every
+scoped file as unconditional and put it in `cfg.instructions`), or `"ignore"`
+(drop them with an `info` diagnostic).
+
+### B6. Copilot prompts (shipped in S4)
+
+`.github/prompts/**/*.prompt.md` → `cfg.command[name]`:
+
+| Copilot | opencode | Notes |
+|---|---|---|
+| `name` frontmatter, or the file basename minus `.prompt` | command key | Subdirectories are not part of the name. A collision between two roots: nearest-to-cwd wins, farther one logged as a `duplicate` warning. |
+| `description` (+ `argument-hint`) | `description` | The hint is appended: `"Draft a plan — args: topic"`. |
+| `agent`, or legacy `mode` | `agent` | `plan` → `plan`; `ask`/`edit`/`agent` (legacy Copilot modes) and any other unknown agent are dropped with an `info` diagnostic rather than producing a command that references an agent that does not exist. |
+| `model` | `model` | Mapped through this plugin's `models` option by exact string; for a list, the first mappable entry wins; otherwise omitted + `info` — never guessed. |
+| `tools` | dropped + `info` | opencode commands have no per-command tool scope. |
+| body | `template` | One distinct `${input:x}` → `$ARGUMENTS`; several → `$1..$N` by first appearance (repeats reuse their number); `${workspaceFolder}` → your worktree path; `#file:path` → `@path`. VS Code-only references (`${file}`, `${selection}`, `#tool:x`, …) are left literal + a `warn` so a prompt you tested in Copilot cannot silently change meaning. |
 
 ### B7. Copilot agents (S5)
 
-### B8. Copilot skills (S4)
+### B8. Copilot skills (shipped in S4)
+
+`.github/skills` and `~/.copilot/skills` → `cfg.skills.paths[]`: the directory's
+absolute path is appended (user scope gated by `"copilot": { "user": false }`),
+and opencode's own skill scanner does everything else — it loads every
+`SKILL.md` under the path, registers the skill as a `/name` command, and
+whitelists reads inside it. Nothing is symlinked and no second parser is
+involved; because the consumer dedupes by absolute path, a directory opencode
+someday scans natively simply stops being re-added. Verify with
+`opencode debug skill`.
 
 ### B9. Copilot MCP / VS Code `mcp.json` (S3)
 

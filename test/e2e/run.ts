@@ -174,8 +174,20 @@ function main(): void {
   );
 
   // TODO(S3): mcp.echo.type === "local"; mcp["remote-example"].url has ${REMOTE_MCP_URL:-...} expanded; vscode-echo server has `environment`.
-  // TODO(S4): command.plan present (Copilot prompt); cfg.skills.paths contains an absolute path ending .github/skills.
   // TODO(S5): agent.planner present, mode === "all".
+
+  const commands = (cfg.command ?? {}) as Record<string, { template?: unknown }>;
+  check(
+    typeof commands["plan"]?.template === "string" && (commands["plan"].template as string).includes("$ARGUMENTS"),
+    "command.plan present with $ARGUMENTS substituted for its single ${input:topic} (Copilot prompt file, B6)",
+  );
+
+  const skillPaths = ((cfg.skills ?? {}) as { paths?: unknown }).paths;
+  check(
+    Array.isArray(skillPaths) &&
+      skillPaths.some((p) => typeof p === "string" && posix(p).endsWith(".github/skills")),
+    "cfg.skills.paths contains the absolute path of .github/skills (Copilot skills, B8)",
+  );
 
   // --- step 2: opencode agent list ---
   const agentList = run("opencode", ["agent", "list"], { cwd: fixtureDir, env });
@@ -205,7 +217,10 @@ function main(): void {
   const skillList = run("opencode", ["debug", "skill"], { cwd: fixtureDir, env });
   save("debug-skill.txt", skillList);
   check(skillList.stdout.includes("native-skill"), "debug skill lists native-skill (native control -- F9, no rosetta involved)");
-  // TODO(S4): assert copilot-skill also appears once copilot.skills stops being a stub.
+  check(
+    skillList.stdout.includes("copilot-skill"),
+    "debug skill lists copilot-skill (injected via cfg.skills.paths, B8 -- S4 acceptance)",
+  );
 
   // --- step 5: opencode mcp list ---
   save("mcp-list.txt", run("opencode", ["mcp", "list"], { cwd: fixtureDir, env }));
@@ -236,6 +251,16 @@ function main(): void {
   check(
     !("component" in negCommands) && !("user-cmd" in negCommands),
     "negative control (--pure): rosetta-translated Claude commands absent",
+  );
+  check(
+    !("plan" in negCommands),
+    "negative control (--pure): command.plan (Copilot prompt translation) is NOT present",
+  );
+  const negSkillPaths = ((negCfg.skills ?? {}) as { paths?: unknown }).paths;
+  check(
+    !Array.isArray(negSkillPaths) ||
+      !negSkillPaths.some((p) => typeof p === "string" && posix(p).endsWith(".github/skills")),
+    "negative control (--pure): .github/skills is NOT in cfg.skills.paths",
   );
 
   log(`${failures === 0 ? "PASS" : "FAIL"} -- ${failures} failing check(s). Full output saved under test/e2e/out/.`);

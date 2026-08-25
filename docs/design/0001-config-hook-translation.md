@@ -61,7 +61,7 @@ config: async (cfg) => {
   surface this plugin translates onto. Not viable as the primary mechanism (one of them,
   `tool.execute.after`, is used for a narrow secondary purpose — see below).
 
-### One secondary hook (S4): `tool.execute.after` for Copilot path-scoped instructions
+### C1 (S4): `tool.execute.after` for Copilot path-scoped instructions
 
 Copilot's `applyTo`-scoped instructions files (`.github/instructions/**/*.instructions.md`
 with a glob narrower than `**`) are not a config-time concept in opencode — nothing reads
@@ -70,6 +70,40 @@ it already does for nested `AGENTS.md` on a file read. S4 mirrors that: a `tool.
 hook on `tool === "read"` matches the read path against the glob (picomatch, F16) and appends
 the instructions text to that tool call's output, once per `(sessionID, file)`. This is a
 narrow, additive hook — it never mutates `cfg` and never runs before the `config` hook.
+
+Implementation notes (all verified against `opencode-ai@1.18.21`, not assumed):
+
+- **The read tool's argument is `filePath`.** `packages/opencode/src/tool/read.ts` at tag
+  `v1.18.21` declares `Parameters = Schema.Struct({ filePath: ... })`; anything else
+  (`path`, `file`) would silently never match.
+- **Output shape mirrors opencode's own nested-`AGENTS.md` behaviour.** `tool/read.ts`
+  appends `<system-reminder>` blocks containing resolved instruction content; this hook
+  appends one block per matching file: `Instructions from: <abs path> (applyTo: <original
+  glob>)` followed by the body (frontmatter stripped — it is config, not prose). Multiple
+  matches join with a blank line, registry order kept.
+- **Once per `(sessionID, read-path)`.** A `Set` keyed by session + worktree-relative posix
+  path gates appends, so re-reading a file in one session never duplicates an injection
+  while two sessions stay independent. `Hooks.dispose` clears it — opencode calls
+  `dispose` when the plugin instance is torn down, so the memory cannot leak across
+  plugin lifecycles.
+- **Windows paths.** `applyTo` globs are authored posix-style but `args.filePath` and
+  `path.relative()` carry backslashes on win32. Matching normalizes both separators
+  unconditionally (`glob.toPosixSlashes`) rather than going through `fs.toPosix`, which only
+  converts the *native* separator and would leave a backslash path unmatched on POSIX CI
+  runners. Pinned by a cross-platform unit test that feeds a literal-backslash path through
+  the matcher, plus a hook-level test using native `join` (real backslashes on Windows CI).
+- **State flows through a holder, not a constructor argument.** opencode calls `server()`
+  once and may fire either hook first; the config pass fills in the instruction list and
+  worktree after translation, and the read hook reads through that indirection. When the
+  mode is not `"inject"`, or nothing is path-scoped, or the plugin is disabled
+  (`OPENCODE_ROSETTA=off`), the holder stays empty and the hook is a no-op — it is still
+  registered unconditionally because registration happens at `server()` time, before the
+  options-driven decision can be made.
+- **Mode selection lives in the source, not the hook.** `copilot/instructions.ts` decides
+  per file whether `copilot.applyTo: "always"` promotes it into `cfg.instructions` or
+  `"ignore"` drops it with an info diagnostic; the hook only ever sees files meant for
+  injection. The hook therefore stays a pure consumer of `PathScopedInstruction`s —
+  the shape S1 declared in `sources/types.ts` for exactly this purpose.
 
 ## Precedence
 
