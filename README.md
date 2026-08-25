@@ -310,6 +310,12 @@ nearest-first; the loser is logged.
   - `OPENCODE_ROSETTA=off` — disable just this plugin.
   - `OPENCODE_DISABLE_PROJECT_CONFIG=1` — start from global config only, if a broken project
     config won't let opencode start at all.
+- The name shows in `opencode debug info` but nothing is translated: for a bare package name,
+  opencode does not read your project's `node_modules` — it installs the package into its own
+  cache at `~/.cache/opencode/packages/<name>@latest`, and a failed install leaves that
+  directory empty and loads nothing, with no error anywhere. Delete the directory and restart
+  opencode to force a clean reinstall; for an unpublished copy, use the re-export form under
+  Install instead of the bare name.
 - Releases and their changes are documented in
   [`CHANGELOG.md`](https://github.com/willem445/opencode-rosetta/blob/main/CHANGELOG.md).
 
