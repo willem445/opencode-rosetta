@@ -5,8 +5,11 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    # Weekly drift check against opencode-ai@latest -- catches the load-bearing
-    # facts (F1-F9 etc.) breaking before a real user hits them (plan risk G6).
+    # Weekly re-check of main against opencode-ai@latest. NOTE: this is no
+    # longer the primary guard -- the required per-PR `latest` legs of the
+    # test job below catch a load-bearing-fact break (F1-F9, plan risk G6)
+    # first, and block the merge. This scheduled job only covers drift that
+    # lands on main between PRs, when no PR run would notice.
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
