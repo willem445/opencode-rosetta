@@ -58,14 +58,25 @@ function save(name: string, result: RunResult): void {
   writeFileSync(join(outDir, name), `$ (exit ${result.status})\n${result.stdout}\n--- stderr ---\n${result.stderr}\n`);
 }
 
-/** Global config isolated into fixture/home -- S1 confirmed this via `opencode debug paths`, pasted in the PR. */
+/**
+ * Global config isolated into fixture/home -- S1 confirmed this via `opencode debug paths`, pasted in the PR.
+ *
+ * Every `OPENCODE_*` variable from the surrounding shell is STRIPPED: running
+ * `bun run e2e` from inside an opencode-managed session otherwise inherits
+ * things like OPENCODE_DISABLE_PROJECT_CONFIG / OPENCODE_CONFIG_CONTENT and
+ * every project-config assert fails against an invisible config override.
+ * The harness must depend only on the repo, not on the developer's env.
+ */
 function isolatedEnv(): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    HOME: homeDir,
-    USERPROFILE: homeDir,
-    XDG_CONFIG_HOME: join(homeDir, ".config"),
-  };
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith("OPENCODE_")) continue;
+    env[key] = value;
+  }
+  env.HOME = homeDir;
+  env.USERPROFILE = homeDir;
+  env.XDG_CONFIG_HOME = join(homeDir, ".config");
+  return env;
 }
 
 function posix(p: string): string {
@@ -170,8 +181,8 @@ function main(): void {
   const agentList = run("opencode", ["agent", "list"], { cwd: fixtureDir, env });
   save("agent-list.txt", agentList);
   check(
-    /(^|\W)reviewer(\W|$)/.test(agentList.stdout) && /subagent/.test(agentList.stdout),
-    "agent list shows reviewer as a subagent (B1)",
+    /^reviewer \(subagent\)\s*$/m.test(agentList.stdout),
+    "agent list shows reviewer as a subagent (B1; anchored to line start so a foreign 'x-reviewer' agent cannot satisfy it)",
   );
   // TODO(S5): assert "planner" listed with mode "all".
 
