@@ -18,6 +18,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { stripAmbientOpencodeEnv } from "./env-filter.js";
 import { parseMcpList } from "./mcp-list.js";
 
 const repoRoot = join(import.meta.dir, "..", "..");
@@ -71,16 +72,10 @@ function save(name: string, result: RunResult): void {
  */
 function isolatedEnv(): NodeJS.ProcessEnv {
   // Exactly one strip implementation (reconciled between S2's and S3's N1
-  // fix): `/^OPENCODE(_|$)/` covers both the prefixed variables and a bare
-  // `OPENCODE`, which a `startsWith("OPENCODE_")` or `/^OPENCODE_/` match
-  // would let escape.
-  const stripped: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (/^OPENCODE(_|$)/.test(key)) continue;
-    stripped[key] = value;
-  }
+  // fixes); the pattern itself is unit-tested in env-filter.test.ts so a
+  // future edit cannot silently narrow it back to the bare-OPENCODE leak.
   return {
-    ...stripped,
+    ...stripAmbientOpencodeEnv(process.env),
     HOME: homeDir,
     USERPROFILE: homeDir,
     XDG_CONFIG_HOME: join(homeDir, ".config"),
