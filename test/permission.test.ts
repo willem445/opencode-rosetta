@@ -81,6 +81,31 @@ describe("toolsToPermission (B1 tools/disallowedTools rows)", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
+  test("blanket mcp__* on the ALLOW side -> dropped + warn (mirror of the deny-side pin)", () => {
+    // The deny side's regression was invisible because nothing pinned it;
+    // this pins the symmetric path so it cannot quietly change either.
+    const result = toolsToPermission({ ...ARGS, tools: "Read, mcp__*" });
+    expect(result.permission).toEqual({ "*": "deny", read: "allow" });
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.level).toBe("warn");
+    expect(result.diagnostics[0]?.reason).toContain("all-MCP");
+    expect(result.diagnostics[0]?.field).toBe("tools");
+  });
+
+  test("blanket mcp__* as the ONLY entry -> deny-all umbrella stays (fail-safe) + warn", () => {
+    // Pinned ACTUAL behavior (round 3): when the only allowlist entry was
+    // dropped as inexpressible, the `"*": "deny"` umbrella REMAINS -- the
+    // agent ends up fully restricted rather than unrestricted. That is the
+    // safe direction (an allowlist that translates partially must never
+    // widen access), and it is loud (`warn`), so this is intentional,
+    // not a silent drop. Flagged to the orchestrator in round 3.
+    const result = toolsToPermission({ ...ARGS, tools: "mcp__*" });
+    expect(result.permission).toEqual({ "*": "deny" });
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.level).toBe("warn");
+    expect(result.diagnostics[0]?.reason).toContain("all-MCP");
+  });
+
   test("mcp__* in disallowedTools -> dropped + warn (no all-MCP rule exists)", () => {
     const result = toolsToPermission({ ...ARGS, disallowedTools: "mcp__*" });
     expect(result.permission).toBeUndefined();
