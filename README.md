@@ -44,7 +44,7 @@ fetches the plugin itself the next time it starts — into its own package cache
 project's `node_modules`:
 
 ```jsonc
-// opencode.json  -- in your project root, or your global opencode config
+// ~/.config/opencode/opencode.json
 {
   "plugin": ["opencode-rosetta"]
 }
@@ -53,6 +53,14 @@ project's `node_modules`:
 Restart opencode, and that is the whole setup. There is nothing to install, run, sync or
 generate: your existing Claude Code and Copilot files are read at startup, as they are, and
 translated in memory.
+
+**Put it in your own config, not the project's.** Wanting to use Claude Code or Copilot
+artifacts from opencode is a personal preference, so it belongs in your user config at
+`~/.config/opencode/opencode.json` (on Windows, `C:\Users\<you>\.config\opencode\opencode.json`).
+There it applies to every project you open, and your teammates never see it. A project-level
+`opencode.json` works identically if you would rather enable it per repository, or commit it
+for a team that has agreed to it — see opencode's
+[configuration docs](https://opencode.ai/docs/config/) for how the two are merged.
 
 ### Check it worked
 
@@ -78,7 +86,7 @@ is silent.
 Use the tuple form to pass options (all of them are listed under [Options](#options)):
 
 ```jsonc
-// opencode.json
+// ~/.config/opencode/opencode.json
 {
   "plugin": [["opencode-rosetta", { "log": "info" }]]
 }
@@ -89,7 +97,7 @@ Use the tuple form to pass options (all of them are listed under [Options](#opti
 By default opencode tracks the latest release. Pin it if you want upgrades to be explicit:
 
 ```jsonc
-// opencode.json
+// ~/.config/opencode/opencode.json
 {
   "plugin": ["opencode-rosetta@0.1.0"]
 }
