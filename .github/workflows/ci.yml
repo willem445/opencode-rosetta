@@ -13,12 +13,19 @@ on:
 jobs:
   test:
     if: github.event_name != 'schedule'
-    name: test (${{ matrix.os }})
+    name: test (opencode ${{ matrix.opencode }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        # REQUIRED e2e against both the pinned floor and current opencode.
+        # 1.18.21 is the version package.json pins @opencode-ai/plugin to;
+        # latest catches a plugin-loading contract break in a required job
+        # (issue #12) instead of only in the weekly continue-on-error drift
+        # job. If latest goes red, bump the pin / fix forward promptly --
+        # this leg deliberately blocks merge while opencode-current is broken.
+        opencode: ["1.18.21", "latest"]
     steps:
       - uses: actions/checkout@v4
 
@@ -38,8 +45,8 @@ jobs:
       - name: Build
         run: bun run build
 
-      - name: Install opencode 1.18.21
-        run: npm install -g opencode-ai@1.18.21
+      - name: Install opencode ${{ matrix.opencode }}
+        run: npm install -g opencode-ai@${{ matrix.opencode }}
 
       - name: opencode --version
         run: opencode --version
@@ -51,7 +58,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-output-${{ matrix.os }}
+          name: e2e-output-${{ matrix.opencode }}-${{ matrix.os }}
           path: test/e2e/out
           if-no-files-found: warn
 
