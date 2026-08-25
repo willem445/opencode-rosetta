@@ -2,29 +2,27 @@ name: Release
 
 # Publishes opencode-rosetta to npm and cuts the matching GitHub release.
 #
-# Two ways in:
-# - push a `v*` tag -> full release (npm publish + GitHub release).
-# - workflow_dispatch -> dry-run by default: runs the whole pipeline up to
-#   `npm publish --dry-run` and publishes nothing. Uncheck `dry_run` only if
-#   you really mean it.
+# Two ways in, with deliberately different powers:
+# - `workflow_dispatch` -> DRY-RUN ONLY. Runs the full pipeline up to
+#   `npm publish --dry-run` and publishes nothing. There is no input (and no
+#   other route) that turns a dispatch into a real publish.
+# - push a `v*` tag -> full release (npm publish + GitHub release). This is
+#   the ONLY path to `npm publish`, and it traverses the human gate twice:
+#   the job runs in the protected `npm` environment (required reviewer,
+#   self-review prevented), and the tag itself must be pushed by hand.
 #
-# The `npm` environment is the human gate: it is configured with required
-# reviewers, so even a tag push waits for a human approval before any publish
-# step runs. Provenance needs `id-token: write` (npm trusted publishing).
+# The publish steps are guarded on TAG context (`refs/tags/v*`), never on an
+# input or a branch name, so a dispatch cannot reach them by any parameter
+# choice. Provenance needs `id-token: write` (npm trusted publishing).
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Dry run (npm publish --dry-run; no npm publish, no GitHub release)"
-        type: boolean
-        default: true
 
 jobs:
   release:
-    name: release (${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'dry-run' || 'publish' }})
+    name: release (${{ startsWith(github.ref, 'refs/tags/v') && 'publish' || 'dry-run' }})
     runs-on: ubuntu-latest
     environment: npm
     permissions:
@@ -64,19 +62,33 @@ jobs:
           fi
           echo "tag ${GITHUB_REF_NAME} matches package.json version"
 
-      # Always runs, including dry-runs: this is the packaging proof. It packs
-      # the tarball and lists its contents without contacting the registry.
+      # Fail-safe check for the only path that publishes: refuse loudly and
+      # early (before approval is spent on a doomed run) if the token secret
+      # has not been configured yet.
+      - name: Preflight - require NPM_TOKEN before any publish step
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          HAS_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
+        run: |
+          if [ "$HAS_TOKEN" != "true" ]; then
+            echo "::error::secrets.NPM_TOKEN is NOT configured -- refusing to attempt a real publish. Add it under Settings > Environments > npm (or repo secrets) first."
+            exit 1
+          fi
+          echo "NPM_TOKEN present"
+
+      # Always runs, including dispatch dry-runs: this is the packaging proof.
+      # It packs the tarball and lists its contents without contacting the registry.
       - name: npm publish --dry-run
         run: npm publish --dry-run --access public
 
       - name: Publish to npm
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Extract changelog section for this version
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
           version="${GITHUB_REF_NAME#v}"
           awk -v pat="^## \\[v${version}\\]" '
@@ -91,7 +103,7 @@ jobs:
           cat release-notes.md
 
       - name: Create GitHub release
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" --title "opencode-rosetta ${GITHUB_REF_NAME}" --notes-file release-notes.md
