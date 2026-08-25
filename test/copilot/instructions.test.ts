@@ -52,3 +52,77 @@ describe("copilotInstructions (B5 proof-of-life row: .github/copilot-instruction
     expect(fragment.instructions).toHaveLength(1);
   });
 });
+
+describe("copilotInstructions (B5 rest: *.instructions.md, applyTo, user dir)", () => {
+  const TREE = join(FIXTURES, "with-instructions");
+
+  test("applyTo ** is unconditional -> cfg.instructions; narrower globs land in pathScoped; absent applyTo is dropped + info", () => {
+    const ctx = makeCtx({ worktree: TREE });
+    const fragment = copilotInstructions(ctx);
+
+    expect(fragment.instructions).toEqual([
+      toPosix(join(TREE, ".github/copilot-instructions.md")),
+      toPosix(join(TREE, ".github/instructions/all.instructions.md")),
+    ]);
+
+    expect(fragment.pathScoped?.map((p) => p.file)).toEqual([
+      toPosix(join(TREE, ".github/instructions/multi.instructions.md")),
+      toPosix(join(TREE, ".github/instructions/ts.instructions.md")),
+    ]);
+    const tsScoped = fragment.pathScoped?.find((p) => p.file.endsWith("ts.instructions.md"));
+    expect(tsScoped?.patterns).toEqual(["**/*.ts"]);
+    expect(tsScoped?.applyTo).toBe("**/*.ts");
+    expect(tsScoped?.content).toContain("type` imports");
+
+    const multi = fragment.pathScoped?.find((p) => p.file.endsWith("multi.instructions.md"));
+    expect(multi?.patterns).toEqual(["src/**/*.ts", "docs/**/*.md"]);
+
+    const noApplyTo = fragment.diagnostics.find((d) => d.reason === "no-apply-to");
+    expect(noApplyTo?.level).toBe("info");
+    expect(noApplyTo?.file).toBe(toPosix(join(TREE, ".github/instructions/no-applyto.instructions.md")));
+    expect(fragment.instructions?.some((p) => p.endsWith("no-applyto.instructions.md"))).toBe(false);
+    expect(fragment.pathScoped?.some((p) => p.file.endsWith("no-applyto.instructions.md"))).toBe(false);
+  });
+
+  test("copilot.applyTo: always -> every scoped file becomes an unconditional instruction instead", () => {
+    const ctx = makeCtx({ worktree: TREE, rawOptions: { copilot: { applyTo: "always" } } });
+    const fragment = copilotInstructions(ctx);
+    expect(fragment.pathScoped).toBeUndefined();
+    expect(fragment.instructions?.some((p) => p.endsWith("ts.instructions.md"))).toBe(true);
+    expect(fragment.instructions?.some((p) => p.endsWith("multi.instructions.md"))).toBe(true);
+  });
+
+  test("copilot.applyTo: ignore -> scoped files dropped with an info diagnostic", () => {
+    const ctx = makeCtx({ worktree: TREE, rawOptions: { copilot: { applyTo: "ignore" } } });
+    const fragment = copilotInstructions(ctx);
+    expect(fragment.pathScoped).toBeUndefined();
+    expect(fragment.instructions?.some((p) => p.endsWith("ts.instructions.md"))).toBe(false);
+    expect(
+      fragment.diagnostics.some(
+        (d) => d.level === "info" && d.reason === "applyTo-ignored" && d.file?.endsWith("ts.instructions.md"),
+      ),
+    ).toBe(true);
+  });
+
+  test("unparseable frontmatter -> warn diagnostic, file excluded everywhere", () => {
+    const broken = join(FIXTURES, "broken");
+    const ctx = makeCtx({ worktree: broken });
+    const fragment = copilotInstructions(ctx);
+    expect(fragment.instructions).toBeUndefined();
+    expect(fragment.pathScoped).toBeUndefined();
+    const diag = fragment.diagnostics.find((d) => d.level === "warn" && d.reason === "unparseable");
+    expect(diag?.file).toBe(toPosix(join(broken, ".github/instructions/bad.instructions.md")));
+  });
+
+  test("~/.copilot/instructions/** follows the same rules, gated by copilot.user", () => {
+    const tree = join(FIXTURES, "with-user-home");
+    const home = join(tree, "home");
+    const on = makeCtx({ worktree: tree, home });
+    const scopedOn = copilotInstructions(on).pathScoped;
+    expect(scopedOn?.map((p) => p.file)).toEqual([toPosix(join(home, ".copilot/instructions/user-md.instructions.md"))]);
+
+    const off = makeCtx({ worktree: tree, home, rawOptions: { copilot: { user: false } } });
+    expect(copilotInstructions(off).pathScoped).toBeUndefined();
+    expect(copilotInstructions(off).instructions).toBeUndefined();
+  });
+});
