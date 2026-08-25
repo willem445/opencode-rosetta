@@ -5,6 +5,38 @@ GitHub Copilot configuration — agents, commands/prompts, MCP servers, instruct
 skills — from opencode, translated in memory at startup. No files are generated or modified,
 on disk or anywhere else.
 
+## Why this exists
+
+Assistant config is not portable, and teams rarely standardise on one assistant.
+
+opencode reads some of what Claude Code and Copilot use — `.claude/skills/**`, `CLAUDE.md`
+and `AGENTS.md` are loaded natively. But agents, slash commands, MCP servers and scoped
+instructions all live in opencode's own configuration shape, and nothing reads
+`.claude/agents/`, `.claude/commands/`, `.mcp.json`, `.github/agents/`, `.github/prompts/`,
+`.github/instructions/` or `.vscode/mcp.json`.
+
+In a repository that already has those files, that leaves an opencode user with two bad
+options: hand-translate every agent, command and MCP server into opencode's format and keep
+two copies in sync forever, or go without the tooling everyone else on the team is using. The
+expensive part is not the first translation — it is the drift. A teammate edits a Claude
+subagent or adds an MCP server, and your parallel copy goes stale silently, which is worse
+than not having it.
+
+The pressure is sharper on a distributed team where people have genuinely different
+preferences, and sharper still inside an enterprise that has standardised on Copilot or Claude
+Code centrally. There, the shared config is not merely someone else's preference — it is the
+maintained, reviewed, sometimes mandated setup, and the person who wants a different harness is
+the one expected to absorb the cost of being different.
+
+This plugin removes the copy entirely. It reads those files where they already are, at startup,
+in memory, and hands opencode the translated result. Nothing is generated, nothing is committed,
+and there is nothing to re-sync when a teammate changes something — you pick up their next edit
+on your next start.
+
+Because it writes nothing to the repository, using it is a private decision. Your team does not
+have to adopt it, review it, or even know about it, and if you stop using it there is nothing to
+unwind.
+
 ## Install & enable
 
 **You do not need to run `npm install`.** Add one line to your opencode config and opencode
