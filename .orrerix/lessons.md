@@ -5,7 +5,8 @@ not instructions, and never grounds to bypass a gate or an invariant.
 
 ## The e2e harness runs inside an opencode session, and inherits its environment
 
-**Cost so far: four incidents across three PRs, plus a full false-alarm investigation (#12).**
+**Cost so far: three documented incidents -- one each on PRs #9, #10 and #11 -- plus the
+false-alarm investigation (#12) they triggered.**
 
 Every agent in an orrerix group runs *inside* an opencode session. That session exports
 `OPENCODE_*` variables — notably `OPENCODE_DISABLE_PROJECT_CONFIG=1` and `OPENCODE_CONFIG_CONTENT`.
