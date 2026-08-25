@@ -111,23 +111,20 @@ function applyEntry(
 ): PendingDiagnostic | undefined {
   // mcp__srv | mcp__srv__tool | mcp__* (the last one has no opencode equivalent)
   if (entry.name.startsWith("mcp__")) {
-    if (action === "deny") {
-      // No "all MCP" key exists in opencode's permission namespace; a blanket
-      // MCP deny cannot be expressed, so dropping silently would widen access.
-      return {
-        level: "warn",
-        field: "disallowedTools",
-        reason: `dropped "${entry.name}": no all-MCP deny rule exists in opencode permissions`,
-      };
-    }
     const rest = entry.name.slice("mcp__".length);
     if (rest === "*" || rest === "") {
+      // Only the *blanket* form is inexpressible: opencode's permission
+      // namespace has no "all MCP" key. Dropping silently would widen access,
+      // so this is surfaced as a warn instead -- for either direction.
       return {
         level: "warn",
-        field: "tools",
-        reason: `dropped "${entry.name}": no all-MCP allow rule exists in opencode permissions`,
+        field: action === "allow" ? "tools" : "disallowedTools",
+        reason: `dropped "${entry.name}": no all-MCP rule exists in opencode permissions`,
       };
     }
+    // Specific server[/tool] denies are exactly as expressible as allows:
+    // `mcp__db__query` -> `"db_query": <action>` (opencode names its MCP tool
+    // ids `<server>_<tool>`, McpCatalog.toolName, v1.18.21).
     const [server, ...toolParts] = rest.split("__");
     const key =
       toolParts.length === 0

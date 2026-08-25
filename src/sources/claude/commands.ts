@@ -77,10 +77,13 @@ export function translateBody(
   let out = body;
 
   // Named arguments -> their 1-based position ($issue with arguments:
-  // [issue, branch] -> $1). split/join, not replaceAll: replacement-string
-  // `$` patterns must not apply to stashed placeholders.
+  // [issue, branch] -> $1). Token-exact: a trailing non-name-character guard
+  // stops `$branch` from matching inside `$branches` (Claude's substitution
+  // is token-exact too). Function replacement, so stashed placeholders are
+  // never re-read as replacement-string `$` patterns.
   opts.argumentNames.forEach((argName, index) => {
-    out = out.split(`$${argName}`).join(stash(`$${index + 1}`));
+    const escaped = argName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`\\$${escaped}(?![A-Za-z0-9_])`, "g"), () => stash(`$${index + 1}`));
   });
 
   // $ARGUMENTS[N] before bare $N so the bracket form is not double-matched.

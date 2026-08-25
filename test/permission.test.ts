@@ -74,12 +74,20 @@ describe("toolsToPermission (B1 tools/disallowedTools rows)", () => {
     expect(result.permission).toEqual({ webfetch: "deny" });
   });
 
+  test("specific MCP denies survive translation (review finding 1: access-widening regression pin)", () => {
+    // "GitHub MCP, except repo deletion" must not come out as "all of GitHub".
+    const result = toolsToPermission({ ...ARGS, tools: "mcp__db", disallowedTools: "mcp__db__query" });
+    expect(result.permission).toEqual({ "*": "deny", "db_*": "allow", db_query: "deny" });
+    expect(result.diagnostics).toEqual([]);
+  });
+
   test("mcp__* in disallowedTools -> dropped + warn (no all-MCP rule exists)", () => {
     const result = toolsToPermission({ ...ARGS, disallowedTools: "mcp__*" });
     expect(result.permission).toBeUndefined();
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0]?.level).toBe("warn");
     expect(result.diagnostics[0]?.reason).toContain("all-MCP");
+    expect(result.diagnostics[0]?.field).toBe("disallowedTools");
   });
 
   test("empty-string / empty-array tools behave like absent", () => {

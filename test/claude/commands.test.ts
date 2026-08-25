@@ -41,6 +41,12 @@ describe("translateBody (B2 template rewrites, F12)", () => {
     ).toBe("$2 <- $1");
   });
 
+  test("named substitution is token-exact: `$branch` never matches inside `$branches` (review finding 3)", () => {
+    expect(
+      translateBody("$branch then $branches and $branchX", { argumentNames: ["branch"], worktree: "/repo" }),
+    ).toBe("$1 then $branches and $branchX");
+  });
+
   test("shell injection and @file references pass through unchanged", () => {
     const body = "!`git status` then @src/README.md with $0";
     expect(translateBody(body, opts)).toBe("!`git status` then @src/README.md with $1");
