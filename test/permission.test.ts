@@ -92,6 +92,18 @@ describe("toolsToPermission (B1 tools/disallowedTools rows)", () => {
     expect(result.diagnostics[0]?.field).toBe("tools");
   });
 
+  test("blanket mcp__* ALLOW warn is explicit: names the rule, states the denial, says what to do (#14)", () => {
+    // Issue #14 option 3: "MCP tools silently stop working with only a quiet
+    // warn as the clue" -- the warn must say that MCP tools were DENIED
+    // despite an allow rule, name the rule that triggered it, and point at
+    // the fix (list servers explicitly).
+    const result = toolsToPermission({ ...ARGS, tools: "Read, mcp__*" });
+    const reason = result.diagnostics[0]?.reason ?? "";
+    expect(reason).toContain('"mcp__*"'); // names the rule that triggered it
+    expect(reason).toMatch(/DENIED/i); // states the actual effect
+    expect(reason).toMatch(/mcp__<server>/); // actionable remediation shape
+  });
+
   test("blanket mcp__* as the ONLY entry -> deny-all umbrella stays (fail-safe) + warn", () => {
     // Pinned ACTUAL behavior (round 3): when the only allowlist entry was
     // dropped as inexpressible, the `"*": "deny"` umbrella REMAINS -- the
@@ -106,13 +118,48 @@ describe("toolsToPermission (B1 tools/disallowedTools rows)", () => {
     expect(result.diagnostics[0]?.reason).toContain("all-MCP");
   });
 
-  test("mcp__* in disallowedTools -> dropped + warn (no all-MCP rule exists)", () => {
+  test("blanket mcp__* NEVER widens: no allow key survives the drop in any mix (#14)", () => {
+    // The #10 invariant, restated for the blanket case: whatever else the
+    // ruleset contains, the dropped blanket entry contributes zero allows --
+    // not a whole-server wildcard, not a tool id, nothing. Specific servers
+    // listed alongside it still translate exactly.
+    const bare = toolsToPermission({ ...ARGS, tools: "mcp__*" });
+    expect(bare.permission).toEqual({ "*": "deny" });
+
+    const mixed = toolsToPermission({ ...ARGS, tools: "Read, Bash, mcp__*" });
+    expect(mixed.permission).toEqual({ "*": "deny", read: "allow", bash: "allow" });
+
+    const alongside = toolsToPermission({ ...ARGS, tools: "mcp__*, mcp__github" });
+    expect(alongside.permission).toEqual({ "*": "deny", "github_*": "allow" });
+
+    for (const result of [bare, mixed, alongside]) {
+      for (const [key, value] of Object.entries(result.permission ?? {})) {
+        if (key === "*") {
+          expect(value).toBe("deny"); // the umbrella never flips to allow
+          continue;
+        }
+        // every non-umbrella entry must trace to an explicitly listed source tool
+        expect(["read", "bash", "github_*"]).toContain(key);
+        expect(value).toBe("allow");
+      }
+    }
+  });
+
+  test("mcp__* in disallowedTools -> dropped + warn; message must NOT claim a denial (#14)", () => {
+    // On the deny side the drop is pure narrowing (nothing was denied that
+    // should have been), so the warn says "NOT denied" + how to get the
+    // denial -- it must not reuse the allow side's "DENIED despite" wording.
     const result = toolsToPermission({ ...ARGS, disallowedTools: "mcp__*" });
     expect(result.permission).toBeUndefined();
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0]?.level).toBe("warn");
     expect(result.diagnostics[0]?.reason).toContain("all-MCP");
     expect(result.diagnostics[0]?.field).toBe("disallowedTools");
+    const reason = result.diagnostics[0]?.reason ?? "";
+    expect(reason).toContain('"mcp__*"');
+    expect(reason).toMatch(/NOT denied/i);
+    expect(reason).toMatch(/mcp__<server>/);
+    expect(reason).not.toMatch(/DENIED despite/i);
   });
 
   test("empty-string / empty-array tools behave like absent", () => {

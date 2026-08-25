@@ -114,12 +114,27 @@ function applyEntry(
     const rest = entry.name.slice("mcp__".length);
     if (rest === "*" || rest === "") {
       // Only the *blanket* form is inexpressible: opencode's permission
-      // namespace has no "all MCP" key. Dropping silently would widen access,
-      // so this is surfaced as a warn instead -- for either direction.
+      // namespace has no "all MCP" key. (Verified at tag v1.18.21: ruleset
+      // keys are wildcard-matched -- `Wildcard.match(permission,
+      // rule.permission)`, packages/opencode/src/permission/index.ts, over
+      // `packages/core/src/util/wildcard.ts` -- so per-server keys like
+      // `"srv_*"` below DO work, but the only key that covers every MCP tool
+      // is `"*"`, which also allows every built-in and plugin tool. A
+      // bounded expansion to "the servers this plugin translated into
+      // cfg.mcp" is not available here either: this converter runs inside
+      // the claude.agents source, which the registry executes BEFORE
+      // claude.mcp, so the translated-server list does not exist yet.)
+      // Dropping silently would widen access, so the entry is dropped and
+      // the warn states the consequence per direction (#14 option 3): on
+      // the allow side the umbrella DENIES tools the user meant to allow;
+      // on the deny side the drop merely narrows.
       return {
         level: "warn",
         field: action === "allow" ? "tools" : "disallowedTools",
-        reason: `dropped "${entry.name}": no all-MCP rule exists in opencode permissions`,
+        reason:
+          action === "allow"
+            ? `dropped "${entry.name}": opencode has no all-MCP permission key, so MCP tools stay DENIED despite this allow rule; list each server explicitly instead (e.g. "mcp__<server>")`
+            : `dropped "${entry.name}": opencode has no all-MCP permission key, so specific MCP servers are NOT denied by this entry; list each server explicitly instead (e.g. "disallowedTools: mcp__<server>")`,
       };
     }
     // Specific server[/tool] denies are exactly as expressible as allows:
