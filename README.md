@@ -385,10 +385,11 @@ nearest-first; the loser is logged.
     config won't let opencode start at all.
 - The name shows in `opencode debug info` but nothing is translated: for a bare package name,
   opencode does not read your project's `node_modules` — it installs the package into its own
-  cache at `~/.cache/opencode/packages/<name>@latest`, and a failed install leaves that
-  directory empty and loads nothing, with no error anywhere. Delete the directory and restart
-  opencode to force a clean reinstall; for an unpublished copy, use the re-export form under
-  Install instead of the bare name.
+  cache under `~/.cache/opencode/` (the exact layout inside has differed between opencode
+  versions; `opencode debug paths` will tell you), and a failed install leaves nothing there
+  and loads nothing, with no error anywhere. Delete the cached copy and restart opencode to
+  force a clean reinstall; for an unpublished copy, use the re-export form under Install
+  instead of the bare name.
 - Releases and their changes are documented in
   [`CHANGELOG.md`](https://github.com/willem445/opencode-rosetta/blob/main/CHANGELOG.md).
 
