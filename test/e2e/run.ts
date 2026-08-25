@@ -18,6 +18,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { parseMcpList } from "./mcp-list.js";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const fixtureDir = join(repoRoot, "test", "e2e", "fixture");
@@ -61,11 +62,12 @@ function save(name: string, result: RunResult): void {
 /**
  * Global config isolated into fixture/home -- S1 confirmed this via `opencode debug paths`, pasted in the PR.
  *
- * Every `OPENCODE_*` variable from the surrounding shell is STRIPPED: running
- * `bun run e2e` from inside an opencode-managed session otherwise inherits
- * things like OPENCODE_DISABLE_PROJECT_CONFIG / OPENCODE_CONFIG_CONTENT and
- * every project-config assert fails against an invisible config override.
- * The harness must depend only on the repo, not on the developer's env.
+ * Every ambient `OPENCODE`-named variable (prefixed or the bare name) is
+ * STRIPPED from the child environment: running `bun run e2e` from inside an
+ * opencode-managed session otherwise inherits things like
+ * OPENCODE_DISABLE_PROJECT_CONFIG / OPENCODE_CONFIG_CONTENT and every
+ * project-config assert fails against an invisible config override. The
+ * harness must depend only on the repo, not on the developer's env.
  */
 function isolatedEnv(): NodeJS.ProcessEnv {
   // Exactly one strip implementation (reconciled between S2's and S3's N1
@@ -266,10 +268,21 @@ function main(): void {
   const mcpList = run("opencode", ["mcp", "list"], { cwd: fixtureDir, env });
   save("mcp-list.txt", mcpList);
   check(mcpList.status === 0, "opencode mcp list exits 0");
-  // Asserts below match the observed 1.18.x output format (see out/mcp-list.txt).
-  check(/echo/i.test(mcpList.stdout), "mcp list mentions the echo server");
-  check(/connected|✓|ok/i.test(mcpList.stdout), "mcp list reports echo connected (proves the command array spawns)");
-  check(!mcpList.stdout.includes("vscode-unresolved"), "vscode-unresolved absent from mcp list");
+  // N2 (PR #11 review): pin *echo* specifically. The previous
+  // `/connected|✓|ok/i` check over the whole stdout passed whenever ANY
+  // server connected -- it could not distinguish success from failure.
+  const entries = parseMcpList(mcpList.stdout);
+  const echoEntry = entries.find((entry) => entry.name === "echo");
+  check(echoEntry !== undefined, "mcp list lists the echo server");
+  check(
+    echoEntry?.status === "connected",
+    `echo is connected (got: ${echoEntry?.status ?? "absent"}) -- proves the command array spawns`,
+  );
+  check(!entries.some((entry) => entry.name === "vscode-unresolved"), "vscode-unresolved absent from mcp list");
+  check(
+    entries.find((entry) => entry.name === "missing-var-example")?.status === "connected",
+    "missing-var-example listed (its unresolved ${ROSETTA_MISSING_VAR} stays literal; the echo script tolerates the extra arg)",
+  );
 
   // --- step 6: negative control -- --pure disables every external plugin (documented CLI flag, F14) ---
   const negative = run("opencode", ["debug", "config", "--pure"], { cwd: fixtureDir, env });

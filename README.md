@@ -165,7 +165,7 @@ Server names listed in `.claude/settings.json` / `.claude/settings.local.json`
 | `url` without `type` | skipped + `warn` (`url-without-type`) | Claude rejects this too. |
 | any other `type` (e.g. `ws`) | skipped + `warn` (`unsupported-type`) | No opencode equivalent for WebSocket servers in v1. The translators therefore only ever emit `local`/`remote`; an unrecognized type reaching the applier is a rosetta bug and is reported as `invalid-type`. |
 | `oauth` | dropped | Shapes differ from opencode's `remote.oauth`; leave opencode's own auto-detection on. |
-| `${VAR}`, `${VAR:-default}` in `command`/`args`/`env`/`cwd`/`url`/`headers` | expanded from the process environment | A missing variable with no default is **left literal** + a `warn` naming only the variable NAME — env values may be credentials and are never logged. |
+| `${VAR}`, `${VAR:-default}` in `command`/`args`/`env`/`cwd`/`url`/`headers` | expanded from the process environment | A missing variable with no default is **left literal** + a `warn` naming only the variable NAME — env values may be credentials and are never logged. A variable that is **set but empty** behaves like an unset one: with a `:-default` the default is used (shell semantics), without one it is left literal + warned rather than expanding to an empty string. Malformed references (unmatched `${`, a bare `$VAR`, nested braces) are passed through untouched — expansion never throws. |
 
 ### B4. Claude skills / `CLAUDE.md` (native — verified by the e2e negative control, no translation)
 

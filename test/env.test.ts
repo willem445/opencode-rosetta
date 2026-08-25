@@ -108,4 +108,23 @@ describe("expandString (B3/B9 variable expansion)", () => {
     const out = expandString("plain command arg", cx());
     expect(out).toEqual({ value: "plain command arg", unexpandedVars: [], unresolvedInputs: [] });
   });
+
+  test("malformed input never throws (N3): unmatched brace passes through", () => {
+    expect(() => expandString("${", cx())).not.toThrow();
+    expect(expandString("${", cx()).value).toBe("${");
+    expect(() => expandString("cmd ${{", cx())).not.toThrow();
+  });
+
+  test("malformed input never throws (N3): a bare $ without braces is untouched, never expanded", () => {
+    const out = expandString("echo $HOME", cx({ env: { HOME: "/should/not/appear" } }));
+    expect(out.value).toBe("echo $HOME");
+    expect(out.unexpandedVars).toEqual([]);
+  });
+
+  test("malformed input never throws (N3): nested ${A${B}} leaves the outer literal, expands only the innermost", () => {
+    const unset = expandString("${A${B}}", cx());
+    expect(unset.value).toBe("${A${B}}");
+    const set = expandString("${A${B}}", cx({ env: { B: "bee" } }));
+    expect(set.value).toBe("${Abee}");
+  });
 });
