@@ -26,10 +26,17 @@ servers this plugin translates into `cfg.mcp` (option 2); or strengthen the warn
   `sanitize(server)_sanitize(tool)` (`packages/opencode/src/session/tools.ts`;
   `McpCatalog.toolName`, `packages/opencode/src/mcp/catalog.ts`). That is what makes the
   per-server keys above match.
-- **There is no all-MCP key.** The only key covering every MCP tool is `"*"`, which also
-  covers every built-in (`read`, `bash`, …) and any plugin-registered tool. Emitting `"*":
-  "allow"` to honour the blanket would grant far more than Claude's `mcp__*` names — the
-  widening bug class #10 was about, in a new place.
+- **There is no MCP-scoped wildcard.** No key means "every MCP tool and nothing else". The
+  obvious candidate, `"*"`, also covers every built-in (`read`, `bash`, …) and any
+  plugin-registered tool, so emitting `"*": "allow"` to honour the blanket would grant far
+  more than Claude's `mcp__*` names — the widening bug class #10 was about, in a new place.
+
+  Nor is there a cleverer pattern that escapes this. A crafted key like `"*_*"` does match
+  every MCP tool id (they always contain the server-to-tool underscore) while excluding most
+  built-ins — but it still catches underscore-named tools such as `external_directory` and
+  `doom_loop`, plus any underscore-named plugin tool. It is therefore no more bounded than
+  `"*"` for option 2's purposes. This is recorded so a future reader does not spend time
+  chasing a wildcard that looks like it would work.
 
 So a **bounded** expansion (option 2) is expressible *in opencode*, but only per enumerated
 server. This plugin cannot enumerate them at conversion time: `toolsToPermission` runs inside
