@@ -232,7 +232,6 @@ function main(): void {
     "agent.planner.description carried over from frontmatter",
   );
   check(agents["user-copilot-agent"] !== undefined, "agent['user-copilot-agent'] present (~/.copilot/agents, B7 user scope)");
->>>>>>> ce22907 (feat: B7 Copilot agents translator (.agent.md/.chatmode.md, ~/.copilot/agents) + tests + e2e asserts (#6))
 
   // --- S4: B6 copilot prompt file -> command.plan ---
   check(
