@@ -6,10 +6,31 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 
-/** Read a text file; `undefined` if it does not exist (any other error propagates). */
-export function readText(path: string): string | undefined {
-  if (!existsSync(path)) return undefined;
-  return readFileSync(path, "utf8");
+/**
+ * Read a text file; `undefined` if it does not exist. A non-ENOENT I/O error
+ * (permission denied, locked file, path is a directory) does NOT throw:
+ * it returns `undefined` and fires `onError` with a machine-stable reason of
+ * the form `could-not-read (<CODE>)` so the caller can record a diagnostic
+ * (#8 finding 2: a translator must degrade to a skip-with-reason, never leave
+ * the config hook half-applied via an uncaught throw). With no `onError` the
+ * error is swallowed -- callers that care pass the callback.
+ */
+export function readText(path: string, onError?: (reason: string) => void): string | undefined {
+  let text: string;
+  try {
+    // existsSync first so the common "not there" case stays silent; the
+    // try/catch also covers the TOCTOU window and any non-ENOENT open/read
+    // failure (EACCES, EISDIR, EBUSY, ...).
+    if (!existsSync(path)) return undefined;
+    text = readFileSync(path, "utf8");
+  } catch (err) {
+    const code =
+      typeof err === "object" && err !== null && "code" in err ? String((err as { code: unknown }).code) : "UNKNOWN";
+    if (code === "ENOENT") return undefined;
+    onError?.(`could-not-read (${code})`);
+    return undefined;
+  }
+  return text;
 }
 
 /**
