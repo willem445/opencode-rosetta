@@ -19,7 +19,8 @@ name: Release
 # anywhere in this file. Requirements per https://docs.npmjs.com/trusted-publishers:
 # - `id-token: write` on this job (below).
 # - npm CLI >= 11.5.1 (Node >= 22.14.0). The pinned Node 22 ships npm 10.x,
-#   so the job upgrades npm explicitly before any publish command.
+#   so the job upgrades npm explicitly (pinned to the v12 major) before any
+#   publish command.
 # - Provenance is generated automatically by trusted publishing from GitHub
 #   Actions; `--provenance` is intentionally NOT passed.
 #
@@ -74,9 +75,15 @@ jobs:
       # but the newest Node 22 LTS still bundles npm 10.9.x. Upgrade explicitly
       # so every publish command below runs on a compliant CLI.
       - name: Upgrade npm for trusted publishing
+        # Pinned to the v12 major rather than @latest: npm is the tool performing
+        # the publish, so an unpinned upgrade lets a future npm release change
+        # publish behaviour on a workflow that only ever runs at release time --
+        # i.e. it would break exactly when it is least convenient to debug. v12
+        # satisfies the >= 11.5.1 trusted-publishing floor and still receives
+        # fixes within the major. Bump deliberately when a new major is needed.
         run: |
           echo "bundled npm: $(npm --version)"
-          npm install -g npm@latest
+          npm install -g npm@12
           echo "using npm: $(npm --version)"
 
       - name: Verify tag matches package.json version
