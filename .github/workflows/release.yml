@@ -4,16 +4,35 @@ name: Release
 #
 # Two ways in, with deliberately different powers:
 # - `workflow_dispatch` -> DRY-RUN ONLY. Runs the full pipeline up to
-#   `npm publish --dry-run` and publishes nothing. There is no input (and no
-#   other route) that turns a dispatch into a real publish.
+#   `npm publish --dry-run` and publishes nothing (if package.json's version
+#   is already on the registry, the dry-run is skipped with a warning -- npm
+#   >= 11 refuses to dry-run over an existing version). There is no input
+#   (and no other route) that turns a dispatch into a real publish.
 # - push a `v*` tag -> full release (npm publish + GitHub release). This is
 #   the ONLY path to `npm publish`, and it traverses the human gate twice:
 #   the job runs in the protected `npm` environment (required reviewer,
 #   self-review prevented), and the tag itself must be pushed by hand.
 #
+# Authentication is npm TRUSTED PUBLISHING (OIDC), not a token: the npm CLI
+# exchanges the job's GitHub OIDC identity for a short-lived publish
+# credential. There is deliberately NO NPM_TOKEN secret and NO NODE_AUTH_TOKEN
+# anywhere in this file. Requirements per https://docs.npmjs.com/trusted-publishers:
+# - `id-token: write` on this job (below).
+# - npm CLI >= 11.5.1 (Node >= 22.14.0). The pinned Node 22 ships npm 10.x,
+#   so the job upgrades npm explicitly (pinned to the v12 major) before any
+#   publish command.
+# - Provenance is generated automatically by trusted publishing from GitHub
+#   Actions; `--provenance` is intentionally NOT passed.
+#
+# The publish is IDEMPOTENT: if the version in package.json already exists on
+# the registry, the publish step skips loudly (warning annotation + job
+# summary) and the run continues to create the GitHub release. A re-run or a
+# retroactive tag therefore cannot produce a red run or double-publish --
+# but it also can never be mistaken for a silent success.
+#
 # The publish steps are guarded on TAG context (`refs/tags/v*`), never on an
 # input or a branch name, so a dispatch cannot reach them by any parameter
-# choice. Provenance needs `id-token: write` (npm trusted publishing).
+# choice.
 
 on:
   push:
@@ -27,7 +46,7 @@ jobs:
     environment: npm
     permissions:
       contents: write # create the GitHub release
-      id-token: write # npm provenance
+      id-token: write # npm trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@v4
 
@@ -52,6 +71,21 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      # Trusted publishing requires npm >= 11.5.1 (docs.npmjs.com/trusted-publishers),
+      # but the newest Node 22 LTS still bundles npm 10.9.x. Upgrade explicitly
+      # so every publish command below runs on a compliant CLI.
+      - name: Upgrade npm for trusted publishing
+        # Pinned to the v12 major rather than @latest: npm is the tool performing
+        # the publish, so an unpinned upgrade lets a future npm release change
+        # publish behaviour on a workflow that only ever runs at release time --
+        # i.e. it would break exactly when it is least convenient to debug. v12
+        # satisfies the >= 11.5.1 trusted-publishing floor and still receives
+        # fixes within the major. Bump deliberately when a new major is needed.
+        run: |
+          echo "bundled npm: $(npm --version)"
+          npm install -g npm@12
+          echo "using npm: $(npm --version)"
+
       - name: Verify tag matches package.json version
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
@@ -62,30 +96,59 @@ jobs:
           fi
           echo "tag ${GITHUB_REF_NAME} matches package.json version"
 
-      # Fail-safe check for the only path that publishes: refuse loudly and
-      # early (before approval is spent on a doomed run) if the token secret
-      # has not been configured yet.
-      - name: Preflight - require NPM_TOKEN before any publish step
-        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-        env:
-          HAS_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
+      # Runs on BOTH paths (dispatch dry-run included): npm >= 11 refuses even
+      # `--dry-run` with "cannot publish over previously published versions"
+      # when the version already exists, so this check must precede the
+      # dry-run step or a retroactive tag could never stay green.
+      - name: Check whether this version is already on npm
+        id: registry
         run: |
-          if [ "$HAS_TOKEN" != "true" ]; then
-            echo "::error::secrets.NPM_TOKEN is NOT configured -- refusing to attempt a real publish. Add it under Settings > Environments > npm (or repo secrets) first."
-            exit 1
+          pkg="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          if npm view "${pkg}@${version}" version >/dev/null 2>&1; then
+            echo "::warning::${pkg}@${version} ALREADY EXISTS on the npm registry -- the publish step below will SKIP and only the GitHub release will be created."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "${pkg}@${version} is not yet on the npm registry."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "NPM_TOKEN present"
 
-      # Always runs, including dispatch dry-runs: this is the packaging proof.
-      # It packs the tarball and lists its contents without contacting the registry.
+      # The packaging proof. Runs whenever the version is NOT already on the
+      # registry (fresh versions, and dispatch dry-runs of them). It packs the
+      # tarball and lists its contents.
       - name: npm publish --dry-run
+        if: ${{ steps.registry.outputs.exists != 'true' }}
         run: npm publish --dry-run --access public
 
+      # The only real-publish step. Authenticated via OIDC (trusted publishing):
+      # no NODE_AUTH_TOKEN, no NPM_TOKEN. Skips LOUDLY if the version is
+      # already on the registry (idempotent re-run / retroactive tag) --
+      # never silently: banner + warning annotation + job summary.
       - name: Publish to npm
+        id: publish
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-        run: npm publish --access public --provenance
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          ALREADY_ON_NPM: ${{ steps.registry.outputs.exists }}
+        run: |
+          pkg="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          if [ "$ALREADY_ON_NPM" = "true" ]; then
+            echo "======================================================================"
+            echo "PUBLISH SKIPPED: ${pkg}@${version} already exists on the npm registry."
+            echo "This is an idempotent re-run (or a retroactive tag). Nothing was"
+            echo "re-published. If you expected a NEW version here, STOP and check"
+            echo "whether package.json was bumped and the tag rebuilt."
+            echo "======================================================================"
+            echo "::warning::PUBLISH SKIPPED: ${pkg}@${version} already exists on npm -- publish skipped (idempotent re-run); the GitHub release will still be created."
+            {
+              echo "### :warning: npm publish SKIPPED"
+              echo ""
+              echo "\`${pkg}@${version}\` already exists on the npm registry, so the publish step did NOT run."
+              echo "The GitHub release is still created below. If a new publish was intended, bump \`package.json\` and re-tag."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            npm publish --access public
+          fi
 
       - name: Extract changelog section for this version
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
