@@ -211,7 +211,27 @@ function main(): void {
     (mcpCfg["vscode-env-input"]?.environment as Record<string, string> | undefined)?.TOKEN === "from-rosetta-input-env",
     "vscode-env-input resolved via ROSETTA_INPUT_VIA_ROSETTA_INPUT (B9 layer 2)",
   );
-  // TODO(S5): agent.planner present, mode === "all".
+
+  // --- S5: B7 copilot agent file -> agent.planner ---
+  const planner = agents["planner"];
+  check(planner !== undefined, "agent.planner present (.github/agents/planner.agent.md -> B7)");
+  check(planner?.mode === "all", "agent.planner.mode === 'all' (B7 default: user-invocable AND model-invocable)");
+  const plannerPermission = planner?.permission as Record<string, unknown> | undefined;
+  check(
+    plannerPermission?.["*"] === "deny" &&
+      plannerPermission?.read === "allow" &&
+      plannerPermission?.grep === "allow" &&
+      plannerPermission?.glob === "allow" &&
+      plannerPermission?.list === "allow" &&
+      plannerPermission?.edit === "allow",
+    "agent.planner.permission denies-all then allows read + search family (grep/glob/list) + edit/* (B7 tools row)",
+  );
+  check(
+    typeof planner?.description === "string" &&
+      (planner.description as string).includes("Plans multi-step work"),
+    "agent.planner.description carried over from frontmatter",
+  );
+  check(agents["user-copilot-agent"] !== undefined, "agent['user-copilot-agent'] present (~/.copilot/agents, B7 user scope)");
 
   // --- S4: B6 copilot prompt file -> command.plan ---
   check(
@@ -233,7 +253,10 @@ function main(): void {
     /^reviewer \(subagent\)\s*$/m.test(agentList.stdout),
     "agent list shows reviewer as a subagent (B1; anchored to line start so a foreign 'x-reviewer' agent cannot satisfy it)",
   );
-  // TODO(S5): assert "planner" listed with mode "all".
+  check(
+    /^planner \(all\)\s*$/m.test(agentList.stdout),
+    "agent list shows planner with mode 'all' (B7; anchored to line start like the reviewer assert above)",
+  );
 
   // --- step 3: opencode debug agent reviewer ---
   const debugReviewer = run("opencode", ["debug", "agent", "reviewer"], { cwd: fixtureDir, env });
@@ -299,6 +322,10 @@ function main(): void {
   check(
     !("reviewer" in negAgents) && !("user-agent" in negAgents),
     "negative control (--pure): rosetta-translated Claude agents absent",
+  );
+  check(
+    !("planner" in negAgents) && !("user-copilot-agent" in negAgents),
+    "negative control (--pure): rosetta-translated Copilot agents absent",
   );
   const negCommands = (negCfg.command ?? {}) as Record<string, unknown>;
   check(

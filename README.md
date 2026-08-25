@@ -7,10 +7,10 @@ to your repo; nothing is written to disk at all. See
 [`docs/design/0001-config-hook-translation.md`](docs/design/0001-config-hook-translation.md)
 for how and why.
 
-> **Status:** slices S1 (scaffold + CI; `.github/copilot-instructions.md`), S2 (Claude
-> subagents + commands, tables B1/B2), S3 (MCP translators, tables B3/B9) and S4 (Copilot
-> instructions with `applyTo`, prompts, skills) are shipped. Every other row below is a stub
-> today and lands in S5 (tracked on [#1](https://github.com/willem445/opencode-rosetta/issues/1)).
+> **Status:** this completes epic [#1](https://github.com/willem445/opencode-rosetta/issues/1)
+> (S1 scaffold, S2 Claude agents/commands, S3 MCP translators, S4 Copilot
+> instructions/prompts/skills, S5 Copilot agents + release) — every row below is translated
+> by v0.1.0; see the [changelog](CHANGELOG.md).
 
 ## Install
 
@@ -25,6 +25,15 @@ for how and why.
 // opencode.json — tuple form, with options
 {
   "plugin": [["opencode-rosetta", { "log": "info" }]]
+}
+```
+
+Pin a version if you want upgrades to be explicit:
+
+```jsonc
+// opencode.json — versioned string form
+{
+  "plugin": ["opencode-rosetta@0.1.0"]
 }
 ```
 
@@ -50,7 +59,7 @@ during their own `server()` — see "Ordering" under Limitations.
 | `.github/copilot-instructions.md` | `cfg.instructions[]` | **S1** |
 | `.github/instructions/**/*.instructions.md` (+ `applyTo`), `~/.copilot/instructions/**` | `cfg.instructions[]` or path-scoped injection | **S4** |
 | `.github/prompts/**/*.prompt.md` | `cfg.command[name]` | **S4** |
-| `.github/agents/**/*.agent.md` (+ `*.chatmode.md`), `~/.copilot/agents` | `cfg.agent[name]` | S5 |
+| `.github/agents/**/*.agent.md` (+ `*.chatmode.md`), `~/.copilot/agents` | `cfg.agent[name]` | **S5** |
 | `.github/skills`, `~/.copilot/skills` | `cfg.skills.paths[]` | **S4** |
 | `.vscode/mcp.json` | `cfg.mcp[name]` | S3 |
 
@@ -100,7 +109,7 @@ files, never `client.config.update`): [`docs/design/0001-config-hook-translation
 ## Mapping tables
 
 Each table below documents one row of "What gets translated" field-by-field: what's read,
-what it becomes, and what's dropped (with why). Filled in as each slice ships.
+what it becomes, and what's dropped (with why).
 
 ### B1. Claude subagents (**S2, shipped**)
 
@@ -211,7 +220,27 @@ scoped file as unconditional and put it in `cfg.instructions`), or `"ignore"`
 | `tools` | dropped + `info` | opencode commands have no per-command tool scope. |
 | body | `template` | One distinct `${input:x}` → `$ARGUMENTS`; several → `$1..$N` by first appearance (repeats reuse their number); `${workspaceFolder}` → your worktree path; `#file:path` → `@path`. VS Code-only references (`${file}`, `${selection}`, `#tool:x`, …) are left literal + a `warn` so a prompt you tested in Copilot cannot silently change meaning. |
 
-### B7. Copilot agents (S5)
+### B7. Copilot agents (**S5, shipped**)
+
+`.github/agents/**/*.agent.md`, `.github/chatmodes/*.chatmode.md` and
+`~/.copilot/agents/**` → `cfg.agent[name]`. Searched nearest-to-where-you-ran-opencode
+first (`.github/agents` then `.github/chatmodes` per root), then your home directory
+(disable the latter with `"copilot": { "user": false }`). A name collision across scopes
+resolves nearest-first; the loser is logged (`warn`, `duplicate`).
+
+| Copilot | opencode | Notes |
+|---|---|---|
+| `name` frontmatter, or the file basename minus `.agent`/`.chatmode` | key | |
+| `description` / body | `description` / `prompt` | Missing `description` → skipped + logged (`info`) — Copilot only shows described agents in its picker, so there is nothing to render anyway. Unparseable frontmatter → skipped + logged (`warn`, `unparseable`). |
+| — | `mode` | `"all"` by default (a Copilot agent is both user-invocable **and** model-invocable). `user-invocable: false` → `"subagent"` (model-invocable only). `disable-model-invocation: true` → `"primary"` (user-invocable only). If both flags are set, `user-invocable: false` wins → `"subagent"`. |
+| `tools` (array or comma-separated string) | `permission = { "*": "deny", …allows }` | Allowlist semantics — same shape as B1 and opencode's native `explore`; emitted as **`permission`, never `tools`** (F5, see the design note). Tool families: `read`/`readFile`/`read/*` → `read`; `edit`/`editFiles`/`createFile`/`createDirectory`/`edit/*` → `edit`; `execute`/`runInTerminal`/`runCommands`/`runTasks`/`execute/*` → `bash`; `search`/`codebase`/`fileSearch`/`textSearch`/`usages`/`listDirectory`/`search/*` → `grep` + `glob` + `list`; `web`/`fetch`/`web/*` → `webfetch` + `websearch`; `agent`/`runSubagent`/`agent/*` → `task`; `todos` → `todowrite`; `vscode/askQuestions` → `question`; `<server>/<tool>` → `"<server>_<tool>"` and `<server>/*` → `"<server>_*"` (opencode names MCP tool ids `<server>_<tool>` after its own sanitization — same rule as B1). A trailing `/*` is
+equivalent to the bare family name (`read/*` ≡ `read`). Unknown names (`browser_*`, `githubRepo`, `problems`, `changes`, `testFailure`, …) are dropped + one `info` per file naming them. |
+| `tools: "*"` or absent | no permission rule | The agent keeps opencode's default tools. |
+| `agents: []` | `task: "deny"` | Explicitly no subagents. Applied *after* the tools allowlist, so an explicit deny wins over an `agent`-family allow. |
+| `agents: [a, b]` | `task: {"*":"deny", a:"allow", b:"allow"}` | Only these subagents. |
+| `agents: ["*"]` / absent | no rule | All subagents allowed — nothing to constrain. |
+| `model` (string or array) | `model` | Mapped through this plugin's `models` option by exact string; for an array, the first mappable entry wins; otherwise omitted + `info` — never guessed (an unresolvable `provider/model` fails at prompt time). |
+| `mcp-servers`, `handoffs`, `hooks`, `target`, `argument-hint`, `metadata`, `infer` | dropped | Logged once per file (`info`, naming the fields). `mcp-servers` is cloud-only (`${{ secrets.X }}`); inline per-agent MCP servers are a follow-up. |
 
 ### B8. Copilot skills (shipped in S4)
 
@@ -273,7 +302,7 @@ whole `gh` server stays out of your config and a warn names it.
 
 ## Limitations
 
-- Every "drop" in the tables above (once filled in) is intentional and documented there — not
+- Every "drop" in the tables above is intentional and documented there — not
   a bug. `models`/`inputs` unresolved references are omitted rather than guessed.
 - An artifact file that exists but cannot be read (permissions, locked by another process) is
   skipped with a logged `could-not-read (<errno>)` warning — it never blocks startup.
@@ -285,6 +314,11 @@ whole `gh` server stays out of your config and a warn names it.
 - Nothing here re-validates a `model` string against the provider you actually have configured
   — an unresolvable `provider/model` fails at prompt time, the same as if you had typed it by
   hand.
+- Copilot agents: per-agent `mcp-servers` (cloud-only), `handoffs`, `hooks`, `target`,
+  `argument-hint`, `metadata`, and `infer` have no opencode equivalent and are dropped (B7).
+  An agent with both `user-invocable: false` **and** `disable-model-invocation: true` becomes a
+  `"subagent"` (the user-invocability flag wins) — "hidden from both pickers" is not an opencode
+  agent mode.
 
 ## Troubleshooting
 
@@ -299,6 +333,8 @@ whole `gh` server stays out of your config and a warn names it.
 - `OPENCODE_DISABLE_PROJECT_CONFIG=1` — skip the project's local `opencode.json`/plugin list
   entirely and start from global config only, if a broken project config won't let opencode
   start at all.
+- Which version am I running? `opencode debug info` lists loaded plugins; releases and their
+  changes are documented in [`CHANGELOG.md`](CHANGELOG.md) and on the repo's Releases page.
 
 ## Development
 
