@@ -7,16 +7,43 @@ on disk or anywhere else.
 
 ## Install & enable
 
-Add the plugin to your `opencode.json`:
+**You do not need to run `npm install`.** Add one line to your opencode config and opencode
+fetches the plugin itself the next time it starts — into its own package cache, not your
+project's `node_modules`:
 
 ```jsonc
-// opencode.json
+// opencode.json  -- in your project root, or your global opencode config
 {
   "plugin": ["opencode-rosetta"]
 }
 ```
 
-Or pass options with the tuple form:
+Restart opencode, and that is the whole setup. There is nothing to install, run, sync or
+generate: your existing Claude Code and Copilot files are read at startup, as they are, and
+translated in memory.
+
+### Check it worked
+
+```
+opencode debug config
+```
+
+Your Claude Code and Copilot artifacts should now appear in the printed config. Depending on
+what you have, these show the individual pieces:
+
+```
+opencode debug agent <name>     # an agent from .claude/agents or .github/agents
+opencode debug skill            # skills discovered under .github/skills
+opencode mcp list               # MCP servers from .mcp.json or .vscode/mcp.json
+```
+
+If the plugin name appears in `opencode debug info` but nothing is translated, see
+[Limitations & troubleshooting](#limitations--troubleshooting) — a failed background install
+is silent.
+
+### Passing options
+
+Use the tuple form to pass options (all of them are listed under [Options](#options)):
 
 ```jsonc
 // opencode.json
@@ -25,7 +52,9 @@ Or pass options with the tuple form:
 }
 ```
 
-Pin a version if you want upgrades to be explicit:
+### Pinning a version
+
+By default opencode tracks the latest release. Pin it if you want upgrades to be explicit:
 
 ```jsonc
 // opencode.json
@@ -34,10 +63,12 @@ Pin a version if you want upgrades to be explicit:
 }
 ```
 
-If you would rather load it from a checked-in file than reference the npm package in
-`plugin:` directly, install the package (`bun add opencode-rosetta`, or your package manager
-of choice) and re-export it — path plugins must export an `id`, which `dist/index.js`
-already does:
+### Loading it from a file instead
+
+This is the one case that *does* need a manual install — for example if you want the plugin
+checked in, or you are running an unpublished build. Install the package
+(`bun add opencode-rosetta`, or your package manager of choice) and re-export it. Path
+plugins must export an `id`, which `dist/index.js` already does:
 
 ```ts
 // .opencode/plugins/rosetta.ts
