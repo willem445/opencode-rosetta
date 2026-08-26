@@ -37,6 +37,34 @@ Because it writes nothing to the repository, using it is a private decision. You
 have to adopt it, review it, or even know about it, and if you stop using it there is nothing to
 unwind.
 
+### What is and is not converging
+
+Two layers genuinely have standardised, and opencode already reads both — so this plugin
+deliberately leaves them alone:
+
+- **[AGENTS.md](https://agents.md)**, now stewarded by the Linux Foundation's
+  [Agentic AI Foundation](https://aaif.io) and read by 30+ tools.
+- **[Agent Skills](https://agentskills.io)** (`SKILL.md`), an open standard read by Copilot,
+  Cursor, Zed, Cline and Claude Code. Through 2026 several tools folded their *own* prompt and
+  mode formats into it — Cursor migrated commands and custom modes to skills, Zed replaced its
+  Rules Library with `.agents/skills/`, and Copilot began superseding prompt files with skills.
+
+What has **not** converged is everything this plugin actually translates: subagents, slash
+commands, scoped instructions and MCP server config. Those still differ per tool, and the
+hardest part is not file layout but **tool permissions**, where the models differ in what they
+can express at all — a boolean `readonly` flag in one tool, a flat allow-list in another,
+regex allow/deny/confirm tiers in a third, pattern rules like `Bash(npm install*)` in a fourth.
+No shared file format fixes that: something has to decide what a rule *means* when the target
+cannot express it. That decision is what this plugin does, and why it logs a diagnostic every
+time it narrows or drops one rather than guessing.
+
+There is also no accepted standard for MCP client configuration. A proposal exists
+([SEP-2633](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2633), plus an
+earlier [community discussion](https://github.com/modelcontextprotocol/modelcontextprotocol/discussions/2218))
+and its problem statement is exactly this one, but it is a draft with no client commitments.
+Until that settles, every client keeps its own file name, root key, transport naming and
+variable-interpolation syntax.
+
 ## Install & enable
 
 **You do not need to run `npm install`.** Add one line to your opencode config and opencode
@@ -333,6 +361,12 @@ dropped + logged.
 
 ### Prompt files (`.github/prompts/`)
 
+> Copilot is moving away from prompt files: agents on its Agent Host do not use them, and its
+> docs suggest converting a prompt to an Agent Skill instead. They still work in VS Code and
+> are still translated here — but if you are writing something new, a skill is the more
+> portable choice, and opencode reads skills natively.
+
+
 | Copilot field | opencode | Notes |
 |---|---|---|
 | `name` frontmatter, or the file basename minus `.prompt` | command key | Subdirectories are not part of the name. A collision between two roots: nearest-to-cwd wins, farther one logged as a `duplicate` warning. |
@@ -348,6 +382,11 @@ Searched nearest-first (`.github/agents` then `.github/chatmodes` per root), the
 directory (disable with `"copilot": { "user": false }`). A name collision resolves
 nearest-first; the loser is logged.
 
+> `.chatmode.md` is Copilot's older name for the same thing — VS Code renamed custom chat modes
+> to custom agents and asks you to rename the files to `.agent.md`. Existing `.chatmode.md`
+> files still work in both Copilot and here, so there is nothing you must do; both extensions
+> are read.
+
 | Copilot field | opencode | Notes |
 |---|---|---|
 | `name` frontmatter, or the file basename minus `.agent`/`.chatmode` | agent key | |
@@ -360,6 +399,46 @@ nearest-first; the loser is logged.
 | `agents: ["*"]` / absent | no rule | All subagents allowed — nothing to constrain. |
 | `model` (string or array) | `model` | Mapped through the `models` option by exact string; for an array, the first mappable entry wins; otherwise omitted + logged. |
 | `mcp-servers`, `handoffs`, `hooks`, `target`, `argument-hint`, `metadata`, `infer` | dropped | Logged once per file, naming the fields. `mcp-servers` is cloud-only (`${{ secrets.X }}`). |
+
+## Alternatives, and when to prefer one
+
+This is not the only way to stop maintaining duplicate agent config, and it is not always the
+best one.
+
+**Generators** — [Ruler](https://github.com/intellectronica/ruler) is the most established
+(one `.ruler/` source, writes native config for ~15 tools including opencode), and
+[chezmoi templates](https://dev.to/dotwee/one-mcp-configuration-for-codex-claude-cursor-and-copilot-with-chezmoi-925)
+or [mcp-servers-nix](https://github.com/natsukium/mcp-servers-nix) do the same job from your
+dotfiles. **Prefer a generator when you want one source of truth for *every* tool your team
+uses**, not just opencode — that is a genuinely different goal from this plugin's, and Ruler
+does it well. The cost is that generated files are committed and can drift from their source,
+and every tool you add is another output to regenerate.
+
+**Gateways** — [MetaMCP](https://github.com/metatool-ai/metamcp),
+[Docker MCP Gateway](https://github.com/docker/mcp-gateway),
+[1MCP](https://github.com/1mcp-app/agent) and [mcp-hub](https://github.com/ravitemer/mcp-hub)
+sidestep config formats entirely: point every client at one aggregating endpoint. **Prefer a
+gateway when the problem is MCP servers specifically**, especially across a team or with
+central auth. The cost is a process to run and an indirection layer to debug. Note this solves
+only MCP — not agents, commands or instructions.
+
+**Symlinks** — the obvious approach, and the one most likely to bite you. Three failure modes
+are documented: Claude Code writes config via temp-file-and-rename, so
+[writing to a symlinked file replaces the symlink](https://github.com/anthropics/claude-code/issues/40857)
+and the copies silently diverge (closed as *not planned*); interpolation syntax differs between
+tools, so [the symlinked file is wrong even when the link survives](https://github.com/scottschreckengaust/e2e-ministack/issues/112)
+(`${VAR:-default}` vs `${env:VAR}`); and on Windows creating symlinks needs Developer Mode or
+elevation.
+
+**This plugin** reads the other tools' files in place, at startup, in memory. Nothing is
+generated, nothing is committed, and there is nothing to regenerate when a teammate edits
+theirs. **Prefer it when you personally want to use opencode on a repo already configured for
+Claude Code or Copilot, without changing that repo.** It only helps opencode — if you need
+Cursor and Copilot in sync too, use a generator.
+
+The approach is not unusual, incidentally: VS Code does the same thing natively for MCP via
+[`chat.mcp.discovery.enabled`](https://code.visualstudio.com/docs/copilot/customization/mcp-servers),
+detecting and reusing other applications' server configurations.
 
 ## Limitations & troubleshooting
 
